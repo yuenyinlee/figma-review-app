@@ -1,0 +1,34 @@
+{
+  "name": "figma-review-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@types/pg": "^8.20.0",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.22.0",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.1",
+    "@types/node-fetch": "^2.6.13",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  }
+}

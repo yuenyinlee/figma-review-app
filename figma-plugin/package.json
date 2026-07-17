@@ -1,0 +1,16 @@
+{
+  "name": "figma-review-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Figma plugin: runs the design review backend against the selected frame and writes real Dev Mode annotations on the flagged layers.",
+  "scripts": {
+    "build": "esbuild code.ts --bundle --outfile=dist/code.js --target=es2017",
+    "watch": "esbuild code.ts --bundle --outfile=dist/code.js --target=es2017 --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.130.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
+  }
+}

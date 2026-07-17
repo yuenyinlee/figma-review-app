@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: figma-review-app
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: FIGMA_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DESIGN_SYSTEM_FILE_KEY
+        sync: false
+      - key: DESIGN_SYSTEM_PAGES
+        sync: false
+      - key: DATABASE_URL
+        sync: false

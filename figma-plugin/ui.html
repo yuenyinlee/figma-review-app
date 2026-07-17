@@ -1,0 +1,127 @@
+<style>
+  body {
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+    font-size: 12px;
+    margin: 0;
+    padding: 12px;
+    color: #1e1e1e;
+  }
+  button {
+    width: 100%;
+    padding: 8px 12px;
+    background: #18a0fb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #b3e0ff;
+    cursor: default;
+  }
+  #status {
+    margin-top: 10px;
+    color: #666;
+  }
+  #status.error {
+    color: #d32f2f;
+  }
+  #results {
+    margin-top: 10px;
+    padding: 0;
+    list-style: none;
+  }
+  #results li {
+    padding: 8px 0;
+    border-top: 1px solid #e5e5e5;
+  }
+  #results li .name {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  #results li .category {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    color: white;
+  }
+  #results li .category.project_brief {
+    background: #0d99ff;
+  }
+  #results li .category.design_system {
+    background: #9747ff;
+  }
+  #results li .category.accessibility_usability {
+    background: #ff9900;
+  }
+</style>
+
+<button id="review-button">Review Selected Frame</button>
+<div id="status"></div>
+<ul id="results"></ul>
+
+<script>
+  const button = document.getElementById("review-button");
+  const status = document.getElementById("status");
+  const results = document.getElementById("results");
+
+  function setStatus(text, isError) {
+    status.textContent = text;
+    status.className = isError ? "error" : "";
+  }
+
+  function renderResults(applied, failedCount) {
+    results.innerHTML = "";
+    for (const item of applied) {
+      const li = document.createElement("li");
+      const category = document.createElement("span");
+      category.className = `category ${item.categorySlug}`;
+      category.textContent = item.categoryLabel;
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = item.name;
+      const comment = document.createElement("span");
+      comment.textContent = item.comment;
+      li.appendChild(category);
+      li.appendChild(name);
+      li.appendChild(comment);
+      results.appendChild(li);
+    }
+    if (failedCount > 0) {
+      const li = document.createElement("li");
+      li.textContent = `${failedCount} annotation(s) couldn't be placed.`;
+      results.appendChild(li);
+    }
+  }
+
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    results.innerHTML = "";
+    setStatus("Starting review...");
+    parent.postMessage({ pluginMessage: { type: "review" } }, "*");
+  });
+
+  window.onmessage = (event) => {
+    const message = event.data.pluginMessage;
+    if (!message) return;
+
+    if (message.type === "status") {
+      setStatus(message.message);
+    } else if (message.type === "error") {
+      setStatus(message.message, true);
+      button.disabled = false;
+    } else if (message.type === "done") {
+      setStatus(`Done -- annotated ${message.applied.length} layer(s).`);
+      renderResults(message.applied, message.failedCount);
+      button.disabled = false;
+    }
+  };
+</script>
