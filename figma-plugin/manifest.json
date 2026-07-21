@@ -1,6 +1,6 @@
 {
   "name": "Design Review Assistant",
-  "id": "figma-review-app-local-dev",
+  "id": "1661316301033868987",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "ui.html",
