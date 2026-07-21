@@ -217,6 +217,14 @@ export interface NodeBoundAnnotation {
   /** The id of the layer (from the provided node list) this critique applies to. */
   nodeId: string;
   category: AnnotationCategorySlug;
+  /**
+   * A short, natural description of the element (e.g. "button labeled
+   * Confirm"), the way a person would refer to it out loud -- not the raw
+   * layer name/metadata, which is often meaningless to a reader (e.g.
+   * "filled", "role=danger, size=large..."). Claude has full visual context
+   * to describe it naturally; our own metadata doesn't.
+   */
+  elementDescription: string;
   /** The specific, localized critique point for that layer. */
   comment: string;
 }
@@ -258,6 +266,14 @@ function buildNodeAnnotationsSchema(nodeIds: string[]) {
                 "Which review dimension this critique belongs to: 'project_brief', " +
                 "'design_system', or 'accessibility_usability'.",
             },
+            elementDescription: {
+              type: "string",
+              description:
+                "A short, natural noun-phrase description of this specific element, the " +
+                "way someone would casually refer to it when pointing at it -- e.g. " +
+                "'button labeled Confirm', 'page heading', 'search input field'. Not the " +
+                "raw layer name or component metadata, and not a full sentence.",
+            },
             comment: {
               type: "string",
               description:
@@ -266,7 +282,7 @@ function buildNodeAnnotationsSchema(nodeIds: string[]) {
                 "no preamble or restating what the layer is.",
             },
           },
-          required: ["nodeId", "category", "comment"],
+          required: ["nodeId", "category", "elementDescription", "comment"],
           additionalProperties: false,
         },
       },
@@ -371,7 +387,8 @@ export async function getNodeBoundAnnotations(
     "genuinely has fewer issues (or none at all), report only what's actually " +
     "there. Never invent or pad out issues just to hit a count. Use the frame " +
     "image together with the bounding boxes above to work out exactly which " +
-    "layer each issue belongs to, and report that layer's id along with a " +
+    "layer each issue belongs to, and report that layer's id, a short natural " +
+    "description of the element (see elementDescription below), and a " +
     "concise, one-sentence comment -- get straight to the problem and the fix, " +
     "no preamble, no restating the layer's name or type. Each point should be " +
     "tied to a specific layer you can actually see an issue with, not a " +

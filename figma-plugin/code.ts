@@ -134,7 +134,7 @@ interface PluginReviewResponse {
     nodeId: string;
     category: AnnotationCategorySlug;
     categoryLabel: string;
-    name: string;
+    elementDescription: string;
     comment: string;
     commentId?: string;
     ok: boolean;
@@ -376,7 +376,12 @@ async function runReview(): Promise<void> {
   // left to do here but report what happened.
   const applied = result.comments
     .filter((c) => c.ok)
-    .map((c) => ({ name: c.name, categorySlug: c.category, categoryLabel: c.categoryLabel, comment: c.comment }));
+    .map((c) => ({
+      name: c.elementDescription,
+      categorySlug: c.category,
+      categoryLabel: c.categoryLabel,
+      comment: c.comment,
+    }));
   const failedCount = result.comments.length - applied.length;
 
   figma.ui.postMessage({ type: "done", applied, failedCount });

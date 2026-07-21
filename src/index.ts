@@ -298,32 +298,31 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
     );
 
     // 5. Post each critique as a comment pinned to the layer it's about,
-    //    tagged with its category and which element it refers to. Each post
-    //    is independent so one failure doesn't sink the whole batch.
-    const nodeById = new Map((nodes as NodeInfo[]).map((n) => [n.id, n]));
+    //    tagged with its category and a natural description of the element
+    //    (Claude's own elementDescription -- much more legible than the raw
+    //    layer name/metadata). Each post is independent so one failure
+    //    doesn't sink the whole batch.
     console.log(`[plugin-review] posting ${annotations.length} comment(s) to Figma...`);
     const comments: {
       nodeId: string;
       category: string;
       categoryLabel: string;
-      name: string;
+      elementDescription: string;
       comment: string;
       commentId?: string;
       ok: boolean;
       error?: string;
     }[] = [];
     for (const annotation of annotations) {
-      const nodeInfo = nodeById.get(annotation.nodeId);
       const categoryLabel = CATEGORY_LABELS[annotation.category] ?? annotation.category;
-      const reference = nodeInfo?.displayText || nodeInfo?.name || "Element";
-      const message = `[${categoryLabel}] "${reference}": ${annotation.comment}`;
+      const message = `[${categoryLabel}] ${annotation.elementDescription}: ${annotation.comment}`;
       try {
         const commentId = await postFigmaComment(fileKey, annotation.nodeId, message);
         comments.push({
           nodeId: annotation.nodeId,
           category: annotation.category,
           categoryLabel,
-          name: reference,
+          elementDescription: annotation.elementDescription,
           comment: annotation.comment,
           commentId,
           ok: true,
@@ -333,7 +332,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
           nodeId: annotation.nodeId,
           category: annotation.category,
           categoryLabel,
-          name: reference,
+          elementDescription: annotation.elementDescription,
           comment: annotation.comment,
           ok: false,
           error: err instanceof Error ? err.message : String(err),
