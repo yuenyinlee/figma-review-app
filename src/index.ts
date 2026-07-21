@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "crypto";
 import express, { Request, Response } from "express";
 import {
   fetchFrameImageBase64,
@@ -21,10 +22,36 @@ app.use(express.json({ limit: "15mb" }));
 app.use((req: Request, res: Response, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Access-Code");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
+  }
+  next();
+});
+
+function isValidAccessCode(provided: string | undefined, required: string): boolean {
+  if (!provided) return false;
+  const providedBuf = Buffer.from(provided);
+  const requiredBuf = Buffer.from(required);
+  // timingSafeEqual throws on mismatched lengths rather than just returning
+  // false, so guard that case explicitly.
+  if (providedBuf.length !== requiredBuf.length) return false;
+  return crypto.timingSafeEqual(providedBuf, requiredBuf);
+}
+
+// The plugin is published on Figma Community -- our plan only offers Public
+// visibility (no Unlisted option), so anyone could find and install it and
+// start hitting this backend on our API budget. Require a shared team access
+// code on every route except the bare health check. Left unset, this fails
+// open so local dev/testing is unaffected.
+app.use((req: Request, res: Response, next) => {
+  const requiredCode = process.env.TEAM_ACCESS_CODE;
+  if (!requiredCode || req.path === "/") {
+    return next();
+  }
+  if (!isValidAccessCode(req.header("X-Access-Code"), requiredCode)) {
+    return res.status(401).json({ error: "Missing or invalid access code" });
   }
   next();
 });

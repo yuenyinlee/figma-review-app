@@ -62,9 +62,39 @@
   #results li .category.accessibility_usability {
     background: #ff9900;
   }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  #access-code-view p {
+    margin: 0 0 8px;
+    color: #666;
+  }
+  #change-access-code-link {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #666;
+    text-align: center;
+  }
 </style>
 
-<button id="review-button">Review Selected Frame</button>
+<div id="access-code-view" style="display: none">
+  <p>Enter the team access code to use this plugin.</p>
+  <input id="access-code-input" type="password" placeholder="Access code" />
+  <button id="save-access-code-button">Save</button>
+</div>
+
+<div id="review-view" style="display: none">
+  <button id="review-button">Review Selected Frame</button>
+  <a href="#" id="change-access-code-link">Change access code</a>
+</div>
+
 <div id="status"></div>
 <ul id="results"></ul>
 
@@ -72,10 +102,27 @@
   const button = document.getElementById("review-button");
   const status = document.getElementById("status");
   const results = document.getElementById("results");
+  const accessCodeView = document.getElementById("access-code-view");
+  const reviewView = document.getElementById("review-view");
+  const accessCodeInput = document.getElementById("access-code-input");
+  const saveAccessCodeButton = document.getElementById("save-access-code-button");
+  const changeAccessCodeLink = document.getElementById("change-access-code-link");
 
   function setStatus(text, isError) {
-    status.textContent = text;
+    status.textContent = text || "";
     status.className = isError ? "error" : "";
+  }
+
+  function showAccessCodeView(message) {
+    accessCodeView.style.display = "block";
+    reviewView.style.display = "none";
+    setStatus(message, Boolean(message));
+  }
+
+  function showReviewView() {
+    accessCodeView.style.display = "none";
+    reviewView.style.display = "block";
+    setStatus("");
   }
 
   function renderResults(applied, failedCount) {
@@ -109,11 +156,33 @@
     parent.postMessage({ pluginMessage: { type: "review" } }, "*");
   });
 
+  saveAccessCodeButton.addEventListener("click", () => {
+    const code = accessCodeInput.value.trim();
+    if (!code) return;
+    parent.postMessage({ pluginMessage: { type: "setAccessCode", code } }, "*");
+  });
+
+  changeAccessCodeLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    accessCodeInput.value = "";
+    showAccessCodeView();
+  });
+
   window.onmessage = (event) => {
     const message = event.data.pluginMessage;
     if (!message) return;
 
-    if (message.type === "status") {
+    if (message.type === "init") {
+      if (message.hasAccessCode) {
+        showReviewView();
+      } else {
+        showAccessCodeView();
+      }
+    } else if (message.type === "needsAccessCode") {
+      showAccessCodeView(message.message);
+    } else if (message.type === "accessCodeSaved") {
+      showReviewView();
+    } else if (message.type === "status") {
       setStatus(message.message);
     } else if (message.type === "error") {
       setStatus(message.message, true);

@@ -16,3 +16,5 @@ services:
         sync: false
       - key: GUIDELINES_DOC_ID
         sync: false
+      - key: TEAM_ACCESS_CODE
+        sync: false

@@ -162,6 +162,19 @@ async function getOrCreateCategoryIds(): Promise<Record<AnnotationCategorySlug, 
 
 figma.showUI(__html__, { width: 320, height: 440 });
 
+const ACCESS_CODE_STORAGE_KEY = "accessCode";
+
+async function getStoredAccessCode(): Promise<string | undefined> {
+  const code = await figma.clientStorage.getAsync(ACCESS_CODE_STORAGE_KEY);
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+// Tell the UI right away whether an access code is already stored, so it
+// shows the right view without a visible flash of the wrong one.
+getStoredAccessCode().then((code) => {
+  figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code) });
+});
+
 /**
  * Collects all visible text found anywhere within a node's subtree (e.g. a
  * button instance's label), since we don't descend into instances
@@ -309,6 +322,12 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 }
 
 async function runReview(): Promise<void> {
+  const accessCode = await getStoredAccessCode();
+  if (!accessCode) {
+    figma.ui.postMessage({ type: "needsAccessCode" });
+    return;
+  }
+
   const selection = figma.currentPage.selection;
 
   if (selection.length !== 1) {
@@ -340,9 +359,6 @@ async function runReview(): Promise<void> {
     figma.ui.postMessage({ type: "error", message: "No annotatable layers found in the selection." });
     return;
   }
-  // Temporary diagnostic: check Plugins > Development > Open Console to see
-  // exactly what instance/style metadata got extracted per layer.
-  console.log("[design-review] candidate nodes:", JSON.stringify(nodes, null, 2));
 
   figma.ui.postMessage({ type: "status", message: "Rendering frame..." });
   const scale = computeSafeScale(frameBox.width, frameBox.height);
@@ -359,7 +375,7 @@ async function runReview(): Promise<void> {
   try {
     const response = await fetch(`${BACKEND_URL}/plugin-review`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
       body: JSON.stringify({
         fileKey: figma.fileKey,
         nodeId: root.id,
@@ -367,6 +383,14 @@ async function runReview(): Promise<void> {
         nodes,
       }),
     });
+    if (response.status === 401) {
+      await figma.clientStorage.deleteAsync(ACCESS_CODE_STORAGE_KEY);
+      figma.ui.postMessage({
+        type: "needsAccessCode",
+        message: "That access code was rejected -- please re-enter it.",
+      });
+      return;
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`${response.status}: ${text}`);
@@ -408,10 +432,14 @@ async function runReview(): Promise<void> {
   figma.ui.postMessage({ type: "done", applied, failedCount });
 }
 
-figma.ui.onmessage = (message: { type: string }) => {
+figma.ui.onmessage = (message: { type: string; code?: string }) => {
   if (message.type === "review") {
     runReview().catch((err) => {
       figma.ui.postMessage({ type: "error", message: `Unexpected error: ${describeError(err)}` });
+    });
+  } else if (message.type === "setAccessCode" && typeof message.code === "string" && message.code.length > 0) {
+    figma.clientStorage.setAsync(ACCESS_CODE_STORAGE_KEY, message.code).then(() => {
+      figma.ui.postMessage({ type: "accessCodeSaved" });
     });
   }
 };
