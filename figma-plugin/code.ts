@@ -4,9 +4,9 @@
 // @figma/plugin-typings lib -- it's genuinely available at runtime though.
 declare function btoa(data: string): string;
 
-// No env vars inside the Figma plugin sandbox -- edit this when the backend
-// moves off localhost/ngrok to a permanent host.
-const BACKEND_URL = "http://localhost:3000";
+// No env vars inside the Figma plugin sandbox -- edit this (and
+// manifest.json's networkAccess) if the backend ever moves again.
+const BACKEND_URL = "https://figma-review-app.onrender.com";
 
 // Node types Figma's Plugin API allows real Dev Mode annotations on.
 const ANNOTATABLE_TYPES = new Set<string>([
