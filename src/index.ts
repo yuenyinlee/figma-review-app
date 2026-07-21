@@ -10,7 +10,7 @@ import {
 } from "./figma";
 import { getDesignAnnotations, getNodeBoundAnnotations, LabeledImage, NodeInfo } from "./claude";
 import { logReview, listReviews } from "./db";
-import { getGuidelines, updateGuidelines } from "./guidelines";
+import { getGuidelines } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
 
 const app = express();
@@ -76,29 +76,15 @@ app.get("/reviews", (_req: Request, res: Response) => {
 });
 
 /**
- * Read/write the team's design guidelines through the app itself, rather
- * than requiring direct file/server access -- see src/guidelines.ts.
+ * Read-only view of what the backend currently sees as the team's
+ * guidelines -- useful for confirming an edit to the Google Doc actually
+ * took effect. Editing happens directly in the doc itself, not via this
+ * app -- see src/guidelines.ts.
  */
 app.get("/guidelines", async (_req: Request, res: Response) => {
   try {
     const content = await getGuidelines();
     return res.json({ content: content ?? "" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ error: message });
-  }
-});
-
-app.put("/guidelines", async (req: Request, res: Response) => {
-  const { content } = req.body ?? {};
-
-  if (typeof content !== "string") {
-    return res.status(400).json({ error: "Request body must include a string field 'content'" });
-  }
-
-  try {
-    await updateGuidelines(content);
-    return res.json({ content });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: message });

@@ -14,5 +14,5 @@ services:
         sync: false
       - key: DESIGN_SYSTEM_PAGES
         sync: false
-      - key: DATABASE_URL
+      - key: GUIDELINES_DOC_ID
         sync: false

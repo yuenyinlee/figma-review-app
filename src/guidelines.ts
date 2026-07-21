@@ -1,63 +1,42 @@
-import { Pool } from "pg";
+import fetch from "node-fetch";
 
-let pool: Pool | null = null;
+const REQUEST_TIMEOUT_MS = 15_000;
 
-function getPool(): Pool {
-  if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error("DATABASE_URL is not set in the environment (.env file)");
-    }
-    // Managed Postgres providers (Supabase included) sit behind a
-    // certificate Node's default CA store doesn't trust out of the box.
-    pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
-  }
-  return pool;
-}
+/**
+ * GUIDELINES_DOC_ID can be just the doc's id, or the whole share URL --
+ * either way we just need the id out of it to build the export link.
+ */
+function getDocId(): string | undefined {
+  const raw = process.env.GUIDELINES_DOC_ID;
+  if (!raw) return undefined;
 
-let tableReady: Promise<void> | null = null;
-
-function ensureTable(): Promise<void> {
-  if (!tableReady) {
-    tableReady = getPool()
-      .query(
-        `
-        CREATE TABLE IF NOT EXISTS guidelines (
-          id INTEGER PRIMARY KEY,
-          content TEXT NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `
-      )
-      .then(() => undefined);
-  }
-  return tableReady;
+  const match = raw.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : raw.trim();
 }
 
 /**
- * Reads the team's current design guidelines -- the single source of truth
- * every review (and guideline-verification run) checks a frame against.
- * Stored in the database (not a local file) so it survives redeploys and
- * can be updated by anyone through the app, not just whoever can edit a
- * file on the machine running the backend. Returns undefined if none have
- * been set yet -- this feature is optional, like the old file-based version.
+ * Reads the team's current design guidelines from a link-shared Google Doc
+ * -- the single source of truth every review (and guideline-verification
+ * run) checks a frame against. Editing happens directly in Google Docs'
+ * own interface, not through this app; we just fetch the latest content on
+ * every call, so an edit takes effect on the very next review with no
+ * redeploy needed. Returns undefined if no doc is configured, or it's
+ * empty -- this feature is optional.
  */
 export async function getGuidelines(): Promise<string | undefined> {
-  await ensureTable();
-  const result = await getPool().query<{ content: string }>("SELECT content FROM guidelines WHERE id = 1");
-  const content = result.rows[0]?.content?.trim();
-  return content && content.length > 0 ? content : undefined;
-}
+  const docId = getDocId();
+  if (!docId) return undefined;
 
-/**
- * Replaces the team's guidelines. This is the "write and update rules
- * through the app" path -- no file access or redeploy required.
- */
-export async function updateGuidelines(content: string): Promise<void> {
-  await ensureTable();
-  await getPool().query(
-    `INSERT INTO guidelines (id, content, updated_at) VALUES (1, $1, now())
-     ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at`,
-    [content]
-  );
+  const url = `https://docs.google.com/document/d/${docId}/export?format=txt`;
+  const res = await fetch(url, { timeout: REQUEST_TIMEOUT_MS });
+
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch guidelines doc (${res.status}). Make sure it's shared as ` +
+        `"Anyone with the link can view".`
+    );
+  }
+
+  const content = (await res.text()).trim();
+  return content.length > 0 ? content : undefined;
 }
