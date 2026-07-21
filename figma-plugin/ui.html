@@ -144,7 +144,7 @@
     }
     if (failedCount > 0) {
       const li = document.createElement("li");
-      li.textContent = `${failedCount} annotation(s) couldn't be placed.`;
+      li.textContent = `${failedCount} comment(s) couldn't be posted.`;
       results.appendChild(li);
     }
   }
@@ -188,7 +188,7 @@
       setStatus(message.message, true);
       button.disabled = false;
     } else if (message.type === "done") {
-      setStatus(`Done -- annotated ${message.applied.length} layer(s).`);
+      setStatus(`Done -- posted ${message.applied.length} comment(s).`);
       renderResults(message.applied, message.failedCount);
       button.disabled = false;
     }

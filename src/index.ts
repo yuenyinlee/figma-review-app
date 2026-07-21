@@ -223,13 +223,24 @@ app.post("/review", async (req: Request, res: Response) => {
   }
 });
 
+// Figma's Plugin API has no way to create comments -- only the REST API
+// does -- so the backend posts them directly rather than handing critiques
+// back for the plugin to write itself (unlike the old Dev Mode annotations
+// approach, which the team has since decided against in favor of comments).
+const CATEGORY_LABELS: Record<string, string> = {
+  project_brief: "Project Brief",
+  design_system: "Design System Guidelines",
+  accessibility_usability: "Accessibility & Usability",
+};
+
 /**
  * Called by the Figma plugin, which runs inside Figma itself. Unlike
  * /review, the plugin already has the rendered frame (via exportAsync) and
  * the frame's own layer tree, so this endpoint takes those directly instead
- * of fetching them from the Figma REST API -- and returns each critique
- * bound to a specific layer id, so the plugin can write a real Dev Mode
- * annotation on that exact layer rather than posting a pinned comment.
+ * of fetching them from the Figma REST API -- and, after Claude critiques
+ * the frame, posts each finding as a comment pinned to the specific layer
+ * it's about (tagged with its category and which element it refers to),
+ * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
   const { fileKey, nodeId, frameImage, nodes } = req.body ?? {};
@@ -286,17 +297,61 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
     );
 
-    // 5. Log the result. Writing the actual annotations onto layers happens
-    //    in the plugin itself, via the Plugin API.
+    // 5. Post each critique as a comment pinned to the layer it's about,
+    //    tagged with its category and which element it refers to. Each post
+    //    is independent so one failure doesn't sink the whole batch.
+    const nodeById = new Map((nodes as NodeInfo[]).map((n) => [n.id, n]));
+    console.log(`[plugin-review] posting ${annotations.length} comment(s) to Figma...`);
+    const comments: {
+      nodeId: string;
+      category: string;
+      categoryLabel: string;
+      name: string;
+      comment: string;
+      commentId?: string;
+      ok: boolean;
+      error?: string;
+    }[] = [];
+    for (const annotation of annotations) {
+      const nodeInfo = nodeById.get(annotation.nodeId);
+      const categoryLabel = CATEGORY_LABELS[annotation.category] ?? annotation.category;
+      const reference = nodeInfo?.displayText || nodeInfo?.name || "Element";
+      const message = `[${categoryLabel}] "${reference}": ${annotation.comment}`;
+      try {
+        const commentId = await postFigmaComment(fileKey, annotation.nodeId, message);
+        comments.push({
+          nodeId: annotation.nodeId,
+          category: annotation.category,
+          categoryLabel,
+          name: reference,
+          comment: annotation.comment,
+          commentId,
+          ok: true,
+        });
+      } catch (err) {
+        comments.push({
+          nodeId: annotation.nodeId,
+          category: annotation.category,
+          categoryLabel,
+          name: reference,
+          comment: annotation.comment,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    console.log(`[plugin-review] done (${elapsed()})`);
+
+    // 6. Log the result
     logReview({
       fileKey,
       nodeId,
       status: "success",
       critique: JSON.stringify(annotations),
-      annotatedNodeIds: annotations.map((a) => a.nodeId).join(","),
+      annotatedNodeIds: comments.filter((c) => c.ok).map((c) => c.nodeId).join(","),
     });
 
-    return res.json({ annotations });
+    return res.json({ comments });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

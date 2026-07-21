@@ -8,7 +8,8 @@ declare function btoa(data: string): string;
 // manifest.json's networkAccess) if the backend ever moves again.
 const BACKEND_URL = "https://figma-review-app.onrender.com";
 
-// Node types Figma's Plugin API allows real Dev Mode annotations on.
+// Node types worth surfacing as review candidates -- excludes purely
+// structural/internal node types not meaningful as their own comment target.
 const ANNOTATABLE_TYPES = new Set<string>([
   "COMPONENT",
   "COMPONENT_SET",
@@ -25,7 +26,7 @@ const ANNOTATABLE_TYPES = new Set<string>([
 
 // Has children, but they're just constituent path fragments (BOOLEAN_OPERATION)
 // or a sealed internal implementation (INSTANCE) -- not individually
-// meaningful annotation targets. A single button instance can otherwise
+// meaningful comment targets. A single button instance can otherwise
 // expand into 3-4 near-duplicate nested-instance/text candidates for what a
 // reviewer sees as one element, burying the one that actually has the
 // useful metadata under redundant copies of its own internals.
@@ -124,40 +125,21 @@ interface NodeInfo {
 
 type AnnotationCategorySlug = "project_brief" | "design_system" | "accessibility_usability";
 
+// The backend posts each critique as a Figma comment directly (the Plugin
+// API has no way to create comments, only the REST API does), so it hands
+// back what actually happened per item, already labeled for display -- the
+// plugin doesn't need its own category-name mapping anymore.
 interface PluginReviewResponse {
-  annotations: { nodeId: string; category: AnnotationCategorySlug; comment: string }[];
-}
-
-// The three review dimensions the backend tags each critique with, mapped to
-// real Figma Dev Mode annotation categories (own label + color) rather than
-// a flat, uncategorized list.
-const CATEGORY_CONFIG: Record<AnnotationCategorySlug, { label: string; color: AnnotationCategoryColor }> = {
-  project_brief: { label: "Project Brief", color: "blue" },
-  design_system: { label: "Design System Guidelines", color: "violet" },
-  accessibility_usability: { label: "Accessibility & Usability", color: "orange" },
-};
-
-/**
- * Looks up each of our three categories by label in the current file,
- * creating any that don't exist yet, so repeated reviews reuse the same
- * categories instead of creating duplicates every run.
- */
-async function getOrCreateCategoryIds(): Promise<Record<AnnotationCategorySlug, string>> {
-  const existing = await figma.annotations.getAnnotationCategoriesAsync();
-  const ids: Partial<Record<AnnotationCategorySlug, string>> = {};
-
-  for (const slug of Object.keys(CATEGORY_CONFIG) as AnnotationCategorySlug[]) {
-    const { label, color } = CATEGORY_CONFIG[slug];
-    const match = existing.find((c) => c.label.trim().toLowerCase() === label.toLowerCase());
-    if (match) {
-      ids[slug] = match.id;
-    } else {
-      const created = await figma.annotations.addAnnotationCategoryAsync({ label, color });
-      ids[slug] = created.id;
-    }
-  }
-
-  return ids as Record<AnnotationCategorySlug, string>;
+  comments: {
+    nodeId: string;
+    category: AnnotationCategorySlug;
+    categoryLabel: string;
+    name: string;
+    comment: string;
+    commentId?: string;
+    ok: boolean;
+    error?: string;
+  }[];
 }
 
 figma.showUI(__html__, { width: 320, height: 440 });
@@ -247,7 +229,7 @@ async function describeNode(
 }
 
 /**
- * Flattens the selected root's descendants into candidate annotation
+ * Flattens the selected root's descendants into candidate comment
  * targets, each with its bounding box relative to the root's top-left
  * corner (so Claude can line them up against the exported frame image).
  */
@@ -298,20 +280,6 @@ function describeError(err: unknown): string {
   }
 }
 
-/**
- * Reading node.annotations back can return entries with both label and
- * labelMarkdown present (one just empty) -- passing that same shape back
- * into the setter trips Figma's "only one of label or labelMarkdown" check.
- * Strip whichever one is actually empty before re-assigning.
- */
-function sanitizeAnnotation(a: Annotation): Annotation {
-  return {
-    ...(a.labelMarkdown ? { labelMarkdown: a.labelMarkdown } : a.label ? { label: a.label } : {}),
-    ...(a.properties ? { properties: a.properties } : {}),
-    ...(a.categoryId ? { categoryId: a.categoryId } : {}),
-  };
-}
-
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 0x8000;
@@ -356,7 +324,7 @@ async function runReview(): Promise<void> {
   figma.ui.postMessage({ type: "status", message: "Collecting layers..." });
   const nodes = await flattenCandidates(root, frameBox);
   if (nodes.length === 0) {
-    figma.ui.postMessage({ type: "error", message: "No annotatable layers found in the selection." });
+    figma.ui.postMessage({ type: "error", message: "No reviewable layers found in the selection." });
     return;
   }
 
@@ -404,30 +372,12 @@ async function runReview(): Promise<void> {
     return;
   }
 
-  figma.ui.postMessage({ type: "status", message: "Setting up annotation categories..." });
-  const categoryIds = await getOrCreateCategoryIds();
-
-  figma.ui.postMessage({ type: "status", message: "Writing annotations..." });
-  const applied: { name: string; categorySlug: string; categoryLabel: string; comment: string }[] = [];
-  let failedCount = 0;
-  for (const annotation of result.annotations) {
-    const node = await figma.getNodeByIdAsync(annotation.nodeId);
-    if (!node || !("annotations" in node)) {
-      failedCount++;
-      continue;
-    }
-    const annotatable = node as SceneNode & { annotations: Annotation[] };
-    annotatable.annotations = [
-      ...annotatable.annotations.map(sanitizeAnnotation),
-      { label: annotation.comment, categoryId: categoryIds[annotation.category] },
-    ];
-    applied.push({
-      name: node.name,
-      categorySlug: annotation.category,
-      categoryLabel: CATEGORY_CONFIG[annotation.category]?.label ?? annotation.category,
-      comment: annotation.comment,
-    });
-  }
+  // The backend already posted each comment to Figma directly -- nothing
+  // left to do here but report what happened.
+  const applied = result.comments
+    .filter((c) => c.ok)
+    .map((c) => ({ name: c.name, categorySlug: c.category, categoryLabel: c.categoryLabel, comment: c.comment }));
+  const failedCount = result.comments.length - applied.length;
 
   figma.ui.postMessage({ type: "done", applied, failedCount });
 }
