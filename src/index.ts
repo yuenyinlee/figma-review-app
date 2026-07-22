@@ -243,7 +243,7 @@ const CATEGORY_LABELS: Record<string, string> = {
  * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
-  const { fileKey, nodeId, frameImage, nodes } = req.body ?? {};
+  const { fileKey, nodeId, frameImage, nodes, existingAnnotations } = req.body ?? {};
 
   if (typeof fileKey !== "string" || typeof nodeId !== "string") {
     return res.status(400).json({
@@ -292,6 +292,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       designSystemReferences,
       guidelines,
       projectBrief,
+      existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`

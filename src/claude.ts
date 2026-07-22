@@ -235,6 +235,11 @@ const ANNOTATION_CATEGORY_SLUGS: AnnotationCategorySlug[] = [
   "accessibility_usability",
 ];
 
+export interface ExistingAnnotation {
+  elementDescription: string;
+  text: string;
+}
+
 export interface NodeBoundCritiqueInput {
   frame: ImageInput;
   /** Candidate layers within the frame that a critique can be attached to. */
@@ -242,6 +247,8 @@ export interface NodeBoundCritiqueInput {
   designSystemReferences?: LabeledImage[];
   guidelines?: string;
   projectBrief?: string;
+  /** Design specs designers already annotated directly on specific layers. */
+  existingAnnotations?: ExistingAnnotation[];
 }
 
 function buildNodeAnnotationsSchema(nodeIds: string[]) {
@@ -381,11 +388,17 @@ export async function getNodeBoundAnnotations(
     "(for design system checking) whether it's a real instance of a shared " +
     "library component/text style, a local one-off, or not a component at all:\n\n" +
     `${layerList}\n\n` +
-    "Identify up to 20 distinct, specific issues with the design -- covering " +
-    "things like visual hierarchy, spacing/alignment, contrast/accessibility, " +
-    "consistency, and usability concerns. There is no minimum -- if the frame " +
-    "genuinely has fewer issues (or none at all), report only what's actually " +
-    "there. Never invent or pad out issues just to hit a count. Use the frame " +
+    "Systematically go through the layer list above one by one -- don't stop " +
+    "as soon as you've found a couple of obvious issues. A screen with many " +
+    "distinct layers typically has real issues spread across several of " +
+    "them, not concentrated in just the first one or two you happen to " +
+    "notice. Identify up to 20 distinct, specific issues with the design -- " +
+    "covering things like visual hierarchy, spacing/alignment, contrast/" +
+    "accessibility, consistency, and usability concerns. There is no " +
+    "minimum -- if, after that systematic pass, the frame genuinely has " +
+    "fewer issues (or none at all), report only what's actually there. Never " +
+    "invent or pad out issues just to hit a count -- the goal is thorough " +
+    "coverage of what's actually there, not a target number. Use the frame " +
     "image together with the bounding boxes above to work out exactly which " +
     "layer each issue belongs to, and report that layer's id, a short natural " +
     "description of the element (see elementDescription below), and a " +
@@ -474,6 +487,21 @@ export async function getNodeBoundAnnotations(
       "\n\nHere is the brief/requirements for this specific project. Check whether " +
       "the frame actually meets what's being asked for, and call out anything " +
       `missing or inconsistent with it:\n\n"""\n${input.projectBrief}\n"""`;
+  }
+
+  if (input.existingAnnotations && input.existingAnnotations.length > 0) {
+    const annotationsList = input.existingAnnotations
+      .map((a) => `- ${a.elementDescription}: "${a.text}"`)
+      .join("\n");
+    instructions +=
+      "\n\nDesigners have already written the following annotations directly on " +
+      "specific elements in this frame, documenting exact design details/specs " +
+      "(spacing, color, behavior, etc.):\n\n" +
+      `${annotationsList}\n\n` +
+      "Check whether the actual design genuinely matches what each of these " +
+      "specifies, and flag any mismatch as a design_system violation -- these " +
+      "are requirements the team already wrote down, not just conventions to " +
+      "infer.";
   }
 
   content.push({ type: "text", text: instructions });

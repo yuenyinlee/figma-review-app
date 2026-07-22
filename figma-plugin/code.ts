@@ -228,13 +228,35 @@ async function describeNode(
   return { isComponentInstance: false };
 }
 
+interface ExistingAnnotation {
+  nodeId: string;
+  elementDescription: string;
+  text: string;
+}
+
+/** Existing Dev Mode annotations (design specs designers already wrote on
+ * specific layers -- spacing, color, behavior notes, etc.) often carry
+ * requirements the review should check the design against, not just our
+ * own guidelines/brief. Joins multiple annotations on one layer together. */
+function getAnnotationText(annotations: readonly Annotation[]): string | undefined {
+  const texts = annotations
+    .map((a) => a.label || a.labelMarkdown)
+    .filter((t): t is string => Boolean(t && t.trim().length > 0));
+  return texts.length > 0 ? texts.join("; ") : undefined;
+}
+
 /**
  * Flattens the selected root's descendants into candidate comment
  * targets, each with its bounding box relative to the root's top-left
  * corner (so Claude can line them up against the exported frame image).
+ * Also collects any existing annotations found along the way.
  */
-async function flattenCandidates(root: ExportableRoot, frameBox: Rect): Promise<NodeInfo[]> {
+async function flattenCandidates(
+  root: ExportableRoot,
+  frameBox: Rect
+): Promise<{ nodes: NodeInfo[]; existingAnnotations: ExistingAnnotation[] }> {
   const candidates: NodeInfo[] = [];
+  const existingAnnotations: ExistingAnnotation[] = [];
 
   async function visit(node: SceneNode): Promise<void> {
     if (candidates.length >= MAX_CANDIDATE_NODES) return;
@@ -254,6 +276,17 @@ async function flattenCandidates(root: ExportableRoot, frameBox: Rect): Promise<
           height: box.height,
           ...meta,
         });
+
+        if ("annotations" in node) {
+          const text = getAnnotationText((node as SceneNode & { annotations: readonly Annotation[] }).annotations);
+          if (text) {
+            existingAnnotations.push({
+              nodeId: node.id,
+              elementDescription: meta.displayText || node.name,
+              text,
+            });
+          }
+        }
       }
     }
 
@@ -267,7 +300,7 @@ async function flattenCandidates(root: ExportableRoot, frameBox: Rect): Promise<
   }
 
   await visit(root);
-  return candidates;
+  return { nodes: candidates, existingAnnotations };
 }
 
 function describeError(err: unknown): string {
@@ -322,7 +355,7 @@ async function runReview(): Promise<void> {
   }
 
   figma.ui.postMessage({ type: "status", message: "Collecting layers..." });
-  const nodes = await flattenCandidates(root, frameBox);
+  const { nodes, existingAnnotations } = await flattenCandidates(root, frameBox);
   if (nodes.length === 0) {
     figma.ui.postMessage({ type: "error", message: "No reviewable layers found in the selection." });
     return;
@@ -349,6 +382,7 @@ async function runReview(): Promise<void> {
         nodeId: root.id,
         frameImage: uint8ArrayToBase64(imageBytes),
         nodes,
+        existingAnnotations,
       }),
     });
     if (response.status === 401) {
