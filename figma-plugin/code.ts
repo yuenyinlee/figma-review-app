@@ -446,6 +446,7 @@ async function runFlowReview(): Promise<void> {
       headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
       body: JSON.stringify({
         fileKey: figma.fileKey,
+        pageNodeId: figma.currentPage.id,
         sectionNodeId: section.id,
         frames,
         connections,
@@ -561,6 +562,7 @@ async function runReview(): Promise<void> {
       headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
       body: JSON.stringify({
         fileKey: figma.fileKey,
+        pageNodeId: figma.currentPage.id,
         nodeId: root.id,
         frameImage: uint8ArrayToBase64(imageBytes),
         nodes,

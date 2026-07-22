@@ -402,6 +402,64 @@ export async function fetchProjectBrief(fileKey: string): Promise<string | undef
 }
 
 /**
+ * Same idea as fetchProjectBrief, but scoped to a single page -- each page
+ * gets its own project brief, and a review must never pick up a brief that
+ * happens to live on a different page. Fetches that one page's full subtree
+ * (no depth limit, unlike the whole-file scan above) and searches it alone.
+ */
+export async function fetchProjectBriefOnPage(
+  fileKey: string,
+  pageNodeId: string
+): Promise<string | undefined> {
+  const token = getFigmaToken();
+  const url = `${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}/nodes?ids=${encodeURIComponent(
+    pageNodeId
+  )}`;
+
+  const res = await fetchWithRetry(url, {
+    headers: { "X-Figma-Token": token },
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Figma page lookup failed: ${res.status} ${await res.text()}`);
+  }
+
+  const json = (await res.json()) as {
+    nodes: Record<string, { document: FigmaTreeNode } | null>;
+  };
+
+  const page = json.nodes[pageNodeId]?.document;
+  if (!page) return undefined;
+
+  const lowerPrefix = PROJECT_BRIEF_NAME.toLowerCase();
+  const matchesName = (node: FigmaTreeNode) => node.name.trim().toLowerCase().startsWith(lowerPrefix);
+
+  function findBrief(node: FigmaTreeNode): FigmaTreeNode | null {
+    if ((node.type === "SECTION" || node.type === "FRAME") && matchesName(node)) return node;
+    if (node.children) {
+      for (const child of node.children) {
+        const found = findBrief(child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  let briefNode: FigmaTreeNode | null = null;
+  for (const child of page.children ?? []) {
+    briefNode = findBrief(child);
+    if (briefNode) break;
+  }
+  if (!briefNode) return undefined;
+
+  const lines: string[] = [];
+  collectText(briefNode, lines);
+  const text = lines.join("\n\n").trim();
+  return text.length > 0 ? text : undefined;
+}
+
+/**
  * Posts a comment on a Figma file, pinned to a specific node at an optional
  * offset (in the node's own coordinate units, i.e. the same units as its
  * width/height) -- defaults to the node's top-left corner.

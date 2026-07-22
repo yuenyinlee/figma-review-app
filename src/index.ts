@@ -5,6 +5,7 @@ import {
   fetchFrameImageBase64,
   fetchNodeImagesBase64,
   fetchProjectBrief,
+  fetchProjectBriefOnPage,
   getNodeDimensions,
   parseFigmaLink,
   postFigmaComment,
@@ -252,7 +253,7 @@ const CATEGORY_LABELS: Record<string, string> = {
  * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
-  const { fileKey, nodeId, frameImage, nodes, existingAnnotations } = req.body ?? {};
+  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId } = req.body ?? {};
 
   if (typeof fileKey !== "string" || typeof nodeId !== "string") {
     return res.status(400).json({
@@ -284,13 +285,18 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
     // 2. Load the team's current design system guidelines, if any are set
     const guidelines = await getGuidelines();
 
-    // 3. Look for a "Project Brief" page in the same file being reviewed
-    console.log(`[plugin-review] looking for a "Project Brief" page...`);
-    const projectBrief = await fetchProjectBrief(fileKey);
+    // 3. Look for a "Project Brief" section on the SAME PAGE as the frame
+    //    being reviewed -- never one that happens to live on a different
+    //    page, even in the same file.
+    console.log(`[plugin-review] looking for a "Project Brief" section on this page...`);
+    const projectBrief =
+      typeof pageNodeId === "string" && pageNodeId.length > 0
+        ? await fetchProjectBriefOnPage(fileKey, pageNodeId)
+        : await fetchProjectBrief(fileKey);
     console.log(
       projectBrief
         ? `[plugin-review] found project brief (${projectBrief.length} chars) (${elapsed()})`
-        : `[plugin-review] no "Project Brief" page found, skipping (${elapsed()})`
+        : `[plugin-review] no "Project Brief" section found, skipping (${elapsed()})`
     );
 
     // 4. Ask Claude for a set of critique points, each bound to a layer id
@@ -383,7 +389,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
  * Deliberately doesn't touch design-system references/guidelines.
  */
 app.post("/flow-review", async (req: Request, res: Response) => {
-  const { fileKey, sectionNodeId, frames, connections } = req.body ?? {};
+  const { fileKey, sectionNodeId, frames, connections, pageNodeId } = req.body ?? {};
 
   if (typeof fileKey !== "string" || typeof sectionNodeId !== "string") {
     return res.status(400).json({
@@ -400,13 +406,17 @@ app.post("/flow-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    // 1. Look for a "Project Brief" page in the file being reviewed
-    console.log(`[flow-review] looking for a "Project Brief" page...`);
-    const projectBrief = await fetchProjectBrief(fileKey);
+    // 1. Look for a "Project Brief" section on the SAME PAGE as the section
+    //    being reviewed -- never one that happens to live on a different page.
+    console.log(`[flow-review] looking for a "Project Brief" section on this page...`);
+    const projectBrief =
+      typeof pageNodeId === "string" && pageNodeId.length > 0
+        ? await fetchProjectBriefOnPage(fileKey, pageNodeId)
+        : await fetchProjectBrief(fileKey);
     console.log(
       projectBrief
         ? `[flow-review] found project brief (${projectBrief.length} chars) (${elapsed()})`
-        : `[flow-review] no "Project Brief" page found, skipping (${elapsed()})`
+        : `[flow-review] no "Project Brief" section found, skipping (${elapsed()})`
     );
 
     // 2. Ask Claude to judge the flow as a whole
