@@ -527,3 +527,177 @@ export async function getNodeBoundAnnotations(
   const parsed = JSON.parse(textBlock.text) as { annotations: NodeBoundAnnotation[] };
   return parsed.annotations;
 }
+
+export interface FlowFrame {
+  nodeId: string;
+  name: string;
+  image: ImageInput;
+}
+
+export interface FlowConnection {
+  sourceFrameId: string;
+  /** What the arrow actually starts from, e.g. "Sign In button", not just the frame. */
+  sourceElementDescription: string;
+  destinationFrameId: string;
+}
+
+export type FlowCategorySlug = "project_brief" | "flow_logic";
+
+export interface FlowCritique {
+  /** The id of the frame (from the provided frame list) this critique applies to. */
+  frameId: string;
+  category: FlowCategorySlug;
+  elementDescription: string;
+  comment: string;
+}
+
+export interface FlowCritiqueInput {
+  frames: FlowFrame[];
+  connections: FlowConnection[];
+  projectBrief?: string;
+}
+
+const FLOW_CATEGORY_SLUGS: FlowCategorySlug[] = ["project_brief", "flow_logic"];
+
+function buildFlowCritiqueSchema(frameIds: string[]) {
+  return {
+    type: "object",
+    properties: {
+      critiques: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            frameId: {
+              type: "string",
+              enum: frameIds,
+              description: "The id of the frame (from the provided frame list) this critique applies to.",
+            },
+            category: {
+              type: "string",
+              enum: FLOW_CATEGORY_SLUGS,
+              description:
+                "'project_brief' if the flow doesn't meet the project brief, or 'flow_logic' if " +
+                "the sequence itself is illogical/confusing/not user-friendly, independent of the brief.",
+            },
+            elementDescription: {
+              type: "string",
+              description:
+                "A short, natural noun-phrase description of what this critique is about -- e.g. " +
+                "'the Sign In button', 'the Dashboard screen', 'the checkout step'. Not a full sentence.",
+            },
+            comment: {
+              type: "string",
+              description:
+                "A specific, actionable critique. Keep it to one or two concise sentences -- state " +
+                "the problem and the fix.",
+            },
+          },
+          required: ["frameId", "category", "elementDescription", "comment"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["critiques"],
+    additionalProperties: false,
+  } as const;
+}
+
+/**
+ * Reviews a user flow -- multiple connected frames/screens -- for whether
+ * the overall sequence fulfills the project brief and is logical/user-
+ * friendly, as opposed to the per-frame review's UI/design-system focus.
+ * Deliberately doesn't take design-system references/guidelines: this mode
+ * is scoped to flow/IA logic, not visual detail, per the team's explicit
+ * split between the two review modes.
+ */
+export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<FlowCritique[]> {
+  const anthropic = getClient();
+
+  const content: Anthropic.Messages.ContentBlockParam[] = [];
+  for (const frame of input.frames) {
+    content.push(
+      { type: "text", text: `Frame "${frame.name}" (id: ${frame.nodeId}):` },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: frame.image.mediaType,
+          data: frame.image.base64,
+        },
+      }
+    );
+  }
+
+  const connectionsList =
+    input.connections.length > 0
+      ? input.connections
+          .map((c) => {
+            const source = input.frames.find((f) => f.nodeId === c.sourceFrameId);
+            const dest = input.frames.find((f) => f.nodeId === c.destinationFrameId);
+            return `- "${source?.name ?? c.sourceFrameId}" -- (${c.sourceElementDescription}) --> "${
+              dest?.name ?? c.destinationFrameId
+            }"`;
+          })
+          .join("\n")
+      : "(no connections between these frames were detected)";
+
+  let instructions =
+    "You are a senior product designer reviewing a multi-screen user flow " +
+    "from a Figma file. Above are the frames (screens) that make up this " +
+    "flow, in no particular order. Here is how they connect to each other " +
+    "(which element on one screen navigates to which other screen):\n\n" +
+    `${connectionsList}\n\n` +
+    "Judge the flow as a whole: does the sequence make logical sense (no " +
+    "dead ends, no missing steps, sensible ordering), and is it genuinely " +
+    "user-friendly (clear next actions, a reasonable number of steps, " +
+    "sensible handling of what happens at each transition)? Systematically " +
+    "consider every frame and every connection above, not just the first " +
+    "screen you happen to look at. Identify up to 15 distinct, specific " +
+    "issues. There is no minimum -- if the flow genuinely has fewer issues " +
+    "(or none), report only what's actually there; never invent or pad out " +
+    "issues just to hit a count. For each issue, report which frame it's " +
+    "most relevant to (by id), a short natural description of what it's " +
+    "about, and a concise one-to-two-sentence comment stating the problem " +
+    "and the fix.\n\n" +
+    "Tag each issue with exactly one category:\n" +
+    "- \"flow_logic\": the sequence itself is illogical, confusing, has " +
+    "dead ends or missing steps, or isn't user-friendly -- independent of " +
+    "any written brief.\n" +
+    "- \"project_brief\": the flow doesn't fulfill this project's specific " +
+    "brief or requirements" +
+    (input.projectBrief
+      ? ""
+      : " (not applicable here -- no brief was provided, so don't use this category)") +
+    ".";
+
+  if (input.projectBrief) {
+    instructions +=
+      "\n\nHere is the brief/requirements for this project. Check whether " +
+      "the flow actually accomplishes what's being asked for, and call out " +
+      `anything missing or inconsistent with it:\n\n"""\n${input.projectBrief}\n"""`;
+  }
+
+  content.push({ type: "text", text: instructions });
+
+  const frameIds = input.frames.map((f) => f.nodeId);
+  const response = await anthropic.messages.create(
+    {
+      model: MODEL,
+      max_tokens: 3000,
+      messages: [{ role: "user", content }],
+      output_config: {
+        format: { type: "json_schema", schema: buildFlowCritiqueSchema(frameIds) },
+      },
+    },
+    { timeout: 90_000 }
+  );
+
+  const textBlock = response.content.find((block) => block.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Claude did not return a text response");
+  }
+
+  const parsed = JSON.parse(textBlock.text) as { critiques: FlowCritique[] };
+  return parsed.critiques;
+}

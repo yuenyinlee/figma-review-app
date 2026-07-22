@@ -142,7 +142,7 @@ interface PluginReviewResponse {
   }[];
 }
 
-figma.showUI(__html__, { width: 320, height: 440 });
+figma.showUI(__html__, { width: 320, height: 480 });
 
 const ACCESS_CODE_STORAGE_KEY = "accessCode";
 
@@ -303,6 +303,188 @@ async function flattenCandidates(
   return { nodes: candidates, existingAnnotations };
 }
 
+interface FlowConnection {
+  sourceFrameId: string;
+  sourceElementDescription: string;
+  destinationFrameId: string;
+}
+
+interface FlowReviewResponse {
+  comments: {
+    nodeId: string;
+    category: string;
+    categoryLabel: string;
+    elementDescription: string;
+    comment: string;
+    commentId?: string;
+    ok: boolean;
+    error?: string;
+  }[];
+}
+
+/** The direct FRAME children of a section are the flow's pages/screens. */
+function collectFlowFrames(section: SectionNode): { id: string; name: string }[] {
+  return section.children
+    .filter((c): c is FrameNode => c.type === "FRAME")
+    .map((f) => ({ id: f.id, name: f.name }));
+}
+
+/** Recursively finds every CONNECTOR node (FigJam-style arrows, possibly
+ * copied into a design file) anywhere within a node's subtree. */
+function collectConnectors(node: BaseNode): ConnectorNode[] {
+  const found: ConnectorNode[] = [];
+
+  function visit(n: BaseNode): void {
+    if (n.type === "CONNECTOR") {
+      found.push(n as ConnectorNode);
+    }
+    if ("children" in n) {
+      for (const child of (n as BaseNode & { children: readonly SceneNode[] }).children) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(node);
+  return found;
+}
+
+/**
+ * A connector endpoint may be attached directly to a page frame, or to a
+ * specific element inside one (e.g. a button) -- either way, walk up until
+ * we find which of our page frames it belongs to, and describe what it's
+ * actually attached to (the frame itself, or a specific element within it).
+ */
+async function resolveConnectorEndpoint(
+  endpoint: ConnectorEndpoint,
+  frameIds: Set<string>
+): Promise<{ frameId: string; elementDescription: string } | undefined> {
+  if (!("endpointNodeId" in endpoint)) return undefined;
+
+  const node = await figma.getNodeByIdAsync(endpoint.endpointNodeId);
+  if (!node) return undefined;
+
+  let current: BaseNode | null = node;
+  while (current && current.type !== "PAGE" && current.type !== "DOCUMENT" && !frameIds.has(current.id)) {
+    current = "parent" in current ? current.parent : null;
+  }
+  if (!current || !frameIds.has(current.id)) return undefined;
+
+  const frameId = current.id;
+  const sceneNode = node as SceneNode;
+  const elementDescription =
+    sceneNode.id === frameId ? sceneNode.name : findDisplayText(sceneNode) || sceneNode.name;
+  return { frameId, elementDescription };
+}
+
+async function runFlowReview(): Promise<void> {
+  const accessCode = await getStoredAccessCode();
+  if (!accessCode) {
+    figma.ui.postMessage({ type: "needsAccessCode" });
+    return;
+  }
+
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1 || selection[0].type !== "SECTION") {
+    figma.ui.postMessage({
+      type: "error",
+      message: "Select exactly one section containing the flow's frames.",
+    });
+    return;
+  }
+
+  const section = selection[0] as SectionNode;
+  const pageFrames = collectFlowFrames(section);
+  if (pageFrames.length < 2) {
+    figma.ui.postMessage({
+      type: "error",
+      message: "That section needs at least two frames to review as a flow.",
+    });
+    return;
+  }
+
+  figma.ui.postMessage({ type: "status", message: "Finding connections..." });
+  const frameIds = new Set(pageFrames.map((f) => f.id));
+  const connectors = collectConnectors(section);
+  const connections: FlowConnection[] = [];
+  for (const connector of connectors) {
+    const start = await resolveConnectorEndpoint(connector.connectorStart, frameIds);
+    const end = await resolveConnectorEndpoint(connector.connectorEnd, frameIds);
+    if (start && end && start.frameId !== end.frameId) {
+      connections.push({
+        sourceFrameId: start.frameId,
+        sourceElementDescription: start.elementDescription,
+        destinationFrameId: end.frameId,
+      });
+    }
+  }
+
+  figma.ui.postMessage({ type: "status", message: `Rendering ${pageFrames.length} frame(s)...` });
+  const frames: { nodeId: string; name: string; image: string }[] = [];
+  for (const pageFrame of pageFrames) {
+    const node = await figma.getNodeByIdAsync(pageFrame.id);
+    if (!node || node.type !== "FRAME") continue;
+    const box = node.absoluteBoundingBox;
+    const scale = box ? computeSafeScale(box.width, box.height) : 1;
+    try {
+      const bytes = await exportFrameSafely(node, scale);
+      frames.push({ nodeId: pageFrame.id, name: pageFrame.name, image: uint8ArrayToBase64(bytes) });
+    } catch (err) {
+      figma.ui.postMessage({
+        type: "error",
+        message: `Failed to render frame "${pageFrame.name}": ${describeError(err)}`,
+      });
+      return;
+    }
+  }
+
+  figma.ui.postMessage({ type: "status", message: "Asking the review backend..." });
+  let result: FlowReviewResponse;
+  try {
+    const response = await fetch(`${BACKEND_URL}/flow-review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
+      body: JSON.stringify({
+        fileKey: figma.fileKey,
+        sectionNodeId: section.id,
+        frames,
+        connections,
+      }),
+    });
+    if (response.status === 401) {
+      await figma.clientStorage.deleteAsync(ACCESS_CODE_STORAGE_KEY);
+      figma.ui.postMessage({
+        type: "needsAccessCode",
+        message: "That access code was rejected -- please re-enter it.",
+      });
+      return;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${response.status}: ${text}`);
+    }
+    result = (await response.json()) as FlowReviewResponse;
+  } catch (err) {
+    figma.ui.postMessage({
+      type: "error",
+      message: `Flow review request failed: ${describeError(err)}. Is the backend running at ${BACKEND_URL}?`,
+    });
+    return;
+  }
+
+  const applied = result.comments
+    .filter((c) => c.ok)
+    .map((c) => ({
+      name: c.elementDescription,
+      categorySlug: c.category,
+      categoryLabel: c.categoryLabel,
+      comment: c.comment,
+    }));
+  const failedCount = result.comments.length - applied.length;
+
+  figma.ui.postMessage({ type: "done", applied, failedCount });
+}
+
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -424,6 +606,10 @@ async function runReview(): Promise<void> {
 figma.ui.onmessage = (message: { type: string; code?: string }) => {
   if (message.type === "review") {
     runReview().catch((err) => {
+      figma.ui.postMessage({ type: "error", message: `Unexpected error: ${describeError(err)}` });
+    });
+  } else if (message.type === "reviewFlow") {
+    runFlowReview().catch((err) => {
       figma.ui.postMessage({ type: "error", message: `Unexpected error: ${describeError(err)}` });
     });
   } else if (message.type === "setAccessCode" && typeof message.code === "string" && message.code.length > 0) {

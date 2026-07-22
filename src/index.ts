@@ -9,7 +9,15 @@ import {
   parseFigmaLink,
   postFigmaComment,
 } from "./figma";
-import { getDesignAnnotations, getNodeBoundAnnotations, LabeledImage, NodeInfo } from "./claude";
+import {
+  getDesignAnnotations,
+  getNodeBoundAnnotations,
+  getUserFlowCritique,
+  LabeledImage,
+  NodeInfo,
+  FlowFrame,
+  FlowConnection,
+} from "./claude";
 import { logReview, listReviews } from "./db";
 import { getGuidelines } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
@@ -231,6 +239,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   project_brief: "Project Brief",
   design_system: "Design System Guidelines",
   accessibility_usability: "Accessibility & Usability",
+  flow_logic: "Flow Logic",
 };
 
 /**
@@ -358,6 +367,118 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
     logReview({
       fileKey,
       nodeId,
+      status: "error",
+      error: message,
+    });
+
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * Called by the Figma plugin's "Review User Flow" button: reviews a set of
+ * connected frames (screens) as a whole -- does the flow fulfill the
+ * project brief, and is the sequence itself logical/user-friendly -- as
+ * opposed to /plugin-review's single-frame UI/design-system focus.
+ * Deliberately doesn't touch design-system references/guidelines.
+ */
+app.post("/flow-review", async (req: Request, res: Response) => {
+  const { fileKey, sectionNodeId, frames, connections } = req.body ?? {};
+
+  if (typeof fileKey !== "string" || typeof sectionNodeId !== "string") {
+    return res.status(400).json({
+      error: "Request body must include string fields 'fileKey' and 'sectionNodeId'",
+    });
+  }
+  if (!Array.isArray(frames) || frames.length < 2) {
+    return res.status(400).json({
+      error: "Request body must include a 'frames' array with at least 2 frames",
+    });
+  }
+
+  const started = Date.now();
+  const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
+
+  try {
+    // 1. Look for a "Project Brief" page in the file being reviewed
+    console.log(`[flow-review] looking for a "Project Brief" page...`);
+    const projectBrief = await fetchProjectBrief(fileKey);
+    console.log(
+      projectBrief
+        ? `[flow-review] found project brief (${projectBrief.length} chars) (${elapsed()})`
+        : `[flow-review] no "Project Brief" page found, skipping (${elapsed()})`
+    );
+
+    // 2. Ask Claude to judge the flow as a whole
+    console.log(`[flow-review] calling Claude with ${frames.length} frame(s)...`);
+    const flowFrames = (frames as { nodeId: string; name: string; image: string }[]).map((f) => ({
+      nodeId: f.nodeId,
+      name: f.name,
+      image: { base64: f.image, mediaType: "image/png" as const },
+    }));
+    const critiques = await getUserFlowCritique({
+      frames: flowFrames,
+      connections: Array.isArray(connections) ? (connections as FlowConnection[]) : [],
+      projectBrief,
+    });
+    console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
+
+    // 3. Post each critique as a comment pinned to the frame it's about
+    console.log(`[flow-review] posting ${critiques.length} comment(s) to Figma...`);
+    const comments: {
+      nodeId: string;
+      category: string;
+      categoryLabel: string;
+      elementDescription: string;
+      comment: string;
+      commentId?: string;
+      ok: boolean;
+      error?: string;
+    }[] = [];
+    for (const critique of critiques) {
+      const categoryLabel = CATEGORY_LABELS[critique.category] ?? critique.category;
+      const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
+      try {
+        const commentId = await postFigmaComment(fileKey, critique.frameId, message);
+        comments.push({
+          nodeId: critique.frameId,
+          category: critique.category,
+          categoryLabel,
+          elementDescription: critique.elementDescription,
+          comment: critique.comment,
+          commentId,
+          ok: true,
+        });
+      } catch (err) {
+        comments.push({
+          nodeId: critique.frameId,
+          category: critique.category,
+          categoryLabel,
+          elementDescription: critique.elementDescription,
+          comment: critique.comment,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    console.log(`[flow-review] done (${elapsed()})`);
+
+    // 4. Log the result
+    logReview({
+      fileKey,
+      nodeId: sectionNodeId,
+      status: "success",
+      critique: JSON.stringify(critiques),
+      annotatedNodeIds: comments.filter((c) => c.ok).map((c) => c.nodeId).join(","),
+    });
+
+    return res.json({ comments });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    logReview({
+      fileKey,
+      nodeId: sectionNodeId,
       status: "error",
       error: message,
     });
