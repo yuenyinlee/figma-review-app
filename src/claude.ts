@@ -549,6 +549,9 @@ export interface FlowCritique {
   category: FlowCategorySlug;
   elementDescription: string;
   comment: string;
+  /** Where in that frame's own image this critique is about, each a fraction 0-1. */
+  x: number;
+  y: number;
 }
 
 export interface FlowCritiqueInput {
@@ -592,8 +595,21 @@ function buildFlowCritiqueSchema(frameIds: string[]) {
                 "A specific, actionable critique. Keep it to one or two concise sentences -- state " +
                 "the problem and the fix.",
             },
+            x: {
+              type: "number",
+              description:
+                "Horizontal position, within the specific frame named in frameId, as a fraction of " +
+                "that frame's width: 0 = left edge, 1 = right edge. Point at the actual element this " +
+                "critique is about (e.g. the button/text in question), not the frame's corner.",
+            },
+            y: {
+              type: "number",
+              description:
+                "Vertical position, within the specific frame named in frameId, as a fraction of " +
+                "that frame's height: 0 = top edge, 1 = bottom edge.",
+            },
           },
-          required: ["frameId", "category", "elementDescription", "comment"],
+          required: ["frameId", "category", "elementDescription", "comment", "x", "y"],
           additionalProperties: false,
         },
       },
@@ -648,22 +664,32 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
     "flow, in no particular order. Here is how they connect to each other " +
     "(which element on one screen navigates to which other screen):\n\n" +
     `${connectionsList}\n\n` +
-    "Judge the flow as a whole: does the sequence make logical sense (no " +
-    "dead ends, no missing steps, sensible ordering), and is it genuinely " +
-    "user-friendly (clear next actions, a reasonable number of steps, " +
-    "sensible handling of what happens at each transition)? Systematically " +
-    "consider every frame and every connection above, not just the first " +
-    "screen you happen to look at. Identify up to 15 distinct, specific " +
-    "issues. There is no minimum -- if the flow genuinely has fewer issues " +
-    "(or none), report only what's actually there; never invent or pad out " +
-    "issues just to hit a count. For each issue, report which frame it's " +
-    "most relevant to (by id), a short natural description of what it's " +
-    "about, and a concise one-to-two-sentence comment stating the problem " +
-    "and the fix.\n\n" +
+    "IMPORTANT: this may only be a partial slice of the complete product -- " +
+    "just the specific feature or update being designed, not the entire " +
+    "app's navigation. Never flag a frame for how it connects (or doesn't) " +
+    "to the others: not for lacking an outgoing connection, not for lacking " +
+    "an incoming one, and not for having no connections at all. Any of " +
+    "those is expected and fine -- this diagram may intentionally include " +
+    "only specific relevant screens, so a frame's apparent isolation, " +
+    "dead end, or incomplete linkage is never evidence of a flow problem " +
+    "and must not be reported as an issue, under any category. Only judge " +
+    "what's actually shown: for the connections that DO exist, is that " +
+    "sequence logical and user-friendly, and does it fulfill the project " +
+    "brief's objectives for this part of the flow? Systematically consider " +
+    "every frame and every connection above, not just the first screen you " +
+    "happen to look at. Identify up to 15 distinct, specific issues. There is no minimum -- if " +
+    "the flow genuinely has fewer issues (or none), report only what's " +
+    "actually there; never invent or pad out issues just to hit a count. " +
+    "For each issue, report which frame it's most relevant to (by id), " +
+    "where in that frame's image it's located (x/y, see below), a short " +
+    "natural description of what it's about, and a concise one-to-two-" +
+    "sentence comment stating the problem and the fix.\n\n" +
     "Tag each issue with exactly one category:\n" +
-    "- \"flow_logic\": the sequence itself is illogical, confusing, has " +
-    "dead ends or missing steps, or isn't user-friendly -- independent of " +
-    "any written brief.\n" +
+    "- \"flow_logic\": the sequence among the frames actually shown is " +
+    "illogical, confusing, or isn't user-friendly (e.g. a genuinely " +
+    "unclear transition, redundant steps, ambiguous next action) -- " +
+    "independent of any written brief, and never just because a frame " +
+    "happens to have no further connection in this diagram.\n" +
     "- \"project_brief\": the flow doesn't fulfill this project's specific " +
     "brief or requirements" +
     (input.projectBrief

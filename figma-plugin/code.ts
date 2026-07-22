@@ -349,11 +349,70 @@ function collectConnectors(node: BaseNode): ConnectorNode[] {
   return found;
 }
 
+/** The point on a bounding box a given magnet direction actually touches. */
+function getMagnetPoint(box: Rect, magnet: string | undefined): { x: number; y: number } {
+  switch (magnet) {
+    case "TOP":
+      return { x: box.x + box.width / 2, y: box.y };
+    case "BOTTOM":
+      return { x: box.x + box.width / 2, y: box.y + box.height };
+    case "LEFT":
+      return { x: box.x, y: box.y + box.height / 2 };
+    case "RIGHT":
+      return { x: box.x + box.width, y: box.y + box.height / 2 };
+    default:
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+}
+
+/**
+ * Finds the smallest (most specific) node in root's subtree whose bounding
+ * box contains the given absolute canvas point -- used because a connector
+ * is sometimes attached to a coarse container (even the whole frame)
+ * rather than the exact small element it visually touches, so trusting the
+ * attachment level as-is can misidentify what the arrow is actually about.
+ */
+function findSmallestNodeAtPoint(root: SceneNode, point: { x: number; y: number }): SceneNode {
+  let best = root;
+  let bestArea = Infinity;
+  const rootBox = "absoluteBoundingBox" in root ? root.absoluteBoundingBox : null;
+  if (rootBox) bestArea = rootBox.width * rootBox.height;
+
+  function visit(node: SceneNode): void {
+    if (node.visible === false) return;
+    const box = "absoluteBoundingBox" in node ? node.absoluteBoundingBox : null;
+    if (
+      box &&
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height
+    ) {
+      const area = box.width * box.height;
+      if (area < bestArea) {
+        best = node;
+        bestArea = area;
+      }
+    }
+    if ("children" in node) {
+      for (const child of (node as SceneNode & { children: readonly SceneNode[] }).children) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(root);
+  return best;
+}
+
 /**
  * A connector endpoint may be attached directly to a page frame, or to a
  * specific element inside one (e.g. a button) -- either way, walk up until
- * we find which of our page frames it belongs to, and describe what it's
- * actually attached to (the frame itself, or a specific element within it).
+ * we find which of our page frames it belongs to. Then, rather than trusting
+ * that attachment level for the description (it's sometimes the whole
+ * frame), hit-test the actual touch point -- the attached node's magnet
+ * point, or its center if no magnet -- against the frame's full subtree to
+ * find the smallest real element actually there.
  */
 async function resolveConnectorEndpoint(
   endpoint: ConnectorEndpoint,
@@ -372,6 +431,18 @@ async function resolveConnectorEndpoint(
 
   const frameId = current.id;
   const sceneNode = node as SceneNode;
+  const attachedBox = "absoluteBoundingBox" in sceneNode ? sceneNode.absoluteBoundingBox : null;
+
+  if (attachedBox) {
+    const frameNode = await figma.getNodeByIdAsync(frameId);
+    if (frameNode) {
+      const magnet = "magnet" in endpoint ? endpoint.magnet : undefined;
+      const point = getMagnetPoint(attachedBox, magnet);
+      const hit = findSmallestNodeAtPoint(frameNode as SceneNode, point);
+      return { frameId, elementDescription: findDisplayText(hit) || hit.name };
+    }
+  }
+
   const elementDescription =
     sceneNode.id === frameId ? sceneNode.name : findDisplayText(sceneNode) || sceneNode.name;
   return { frameId, elementDescription };
@@ -420,7 +491,7 @@ async function runFlowReview(): Promise<void> {
   }
 
   figma.ui.postMessage({ type: "status", message: `Rendering ${pageFrames.length} frame(s)...` });
-  const frames: { nodeId: string; name: string; image: string }[] = [];
+  const frames: { nodeId: string; name: string; image: string; width: number; height: number }[] = [];
   for (const pageFrame of pageFrames) {
     const node = await figma.getNodeByIdAsync(pageFrame.id);
     if (!node || node.type !== "FRAME") continue;
@@ -428,7 +499,13 @@ async function runFlowReview(): Promise<void> {
     const scale = box ? computeSafeScale(box.width, box.height) : 1;
     try {
       const bytes = await exportFrameSafely(node, scale);
-      frames.push({ nodeId: pageFrame.id, name: pageFrame.name, image: uint8ArrayToBase64(bytes) });
+      frames.push({
+        nodeId: pageFrame.id,
+        name: pageFrame.name,
+        image: uint8ArrayToBase64(bytes),
+        width: box?.width ?? 0,
+        height: box?.height ?? 0,
+      });
     } catch (err) {
       figma.ui.postMessage({
         type: "error",

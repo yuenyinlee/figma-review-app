@@ -421,11 +421,18 @@ app.post("/flow-review", async (req: Request, res: Response) => {
 
     // 2. Ask Claude to judge the flow as a whole
     console.log(`[flow-review] calling Claude with ${frames.length} frame(s)...`);
-    const flowFrames = (frames as { nodeId: string; name: string; image: string }[]).map((f) => ({
+    type RequestFrame = { nodeId: string; name: string; image: string; width?: number; height?: number };
+    const requestFrames = frames as RequestFrame[];
+    const flowFrames = requestFrames.map((f) => ({
       nodeId: f.nodeId,
       name: f.name,
       image: { base64: f.image, mediaType: "image/png" as const },
     }));
+    const frameDimsById = new Map(
+      requestFrames
+        .filter((f) => typeof f.width === "number" && typeof f.height === "number")
+        .map((f) => [f.nodeId, { width: f.width as number, height: f.height as number }])
+    );
     const critiques = await getUserFlowCritique({
       frames: flowFrames,
       connections: Array.isArray(connections) ? (connections as FlowConnection[]) : [],
@@ -448,8 +455,12 @@ app.post("/flow-review", async (req: Request, res: Response) => {
     for (const critique of critiques) {
       const categoryLabel = CATEGORY_LABELS[critique.category] ?? critique.category;
       const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
+      const dims = frameDimsById.get(critique.frameId);
+      const clampedX = Math.min(1, Math.max(0, critique.x));
+      const clampedY = Math.min(1, Math.max(0, critique.y));
+      const offset = dims ? { x: clampedX * dims.width, y: clampedY * dims.height } : { x: 0, y: 0 };
       try {
-        const commentId = await postFigmaComment(fileKey, critique.frameId, message);
+        const commentId = await postFigmaComment(fileKey, critique.frameId, message, offset);
         comments.push({
           nodeId: critique.frameId,
           category: critique.category,
