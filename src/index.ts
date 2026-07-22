@@ -18,6 +18,7 @@ import {
   NodeInfo,
   FlowFrame,
   FlowConnection,
+  FlowFrameAnnotation,
 } from "./claude";
 import { logReview, listReviews } from "./db";
 import { getGuidelines } from "./guidelines";
@@ -389,7 +390,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
  * Deliberately doesn't touch design-system references/guidelines.
  */
 app.post("/flow-review", async (req: Request, res: Response) => {
-  const { fileKey, sectionNodeId, frames, connections, pageNodeId } = req.body ?? {};
+  const { fileKey, sectionNodeId, frames, connections, pageNodeId, frameAnnotations } = req.body ?? {};
 
   if (typeof fileKey !== "string" || typeof sectionNodeId !== "string") {
     return res.status(400).json({
@@ -437,6 +438,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       frames: flowFrames,
       connections: Array.isArray(connections) ? (connections as FlowConnection[]) : [],
       projectBrief,
+      frameAnnotations: Array.isArray(frameAnnotations) ? (frameAnnotations as FlowFrameAnnotation[]) : undefined,
     });
     console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
 

@@ -554,10 +554,19 @@ export interface FlowCritique {
   y: number;
 }
 
+export interface FlowFrameAnnotation {
+  frameId: string;
+  elementDescription: string;
+  text: string;
+}
+
 export interface FlowCritiqueInput {
   frames: FlowFrame[];
   connections: FlowConnection[];
   projectBrief?: string;
+  /** Existing annotations on frames' layers -- often document behavior/actions
+   * (e.g. "shows a toast after submit") that aren't visible in a static image. */
+  frameAnnotations?: FlowFrameAnnotation[];
 }
 
 const FLOW_CATEGORY_SLUGS: FlowCategorySlug[] = ["project_brief", "flow_logic"];
@@ -643,6 +652,17 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
         },
       }
     );
+
+    const annotationsOnThisFrame = (input.frameAnnotations ?? []).filter((a) => a.frameId === frame.nodeId);
+    if (annotationsOnThisFrame.length > 0) {
+      const list = annotationsOnThisFrame.map((a) => `- ${a.elementDescription}: "${a.text}"`).join("\n");
+      content.push({
+        type: "text",
+        text:
+          `Designers already annotated the following on this frame, documenting behavior/actions ` +
+          `that aren't visible in the static image above (e.g. what happens on an interaction):\n\n${list}`,
+      });
+    }
   }
 
   const connectionsList =
@@ -661,8 +681,12 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
   let instructions =
     "You are a senior product designer reviewing a multi-screen user flow " +
     "from a Figma file. Above are the frames (screens) that make up this " +
-    "flow, in no particular order. Here is how they connect to each other " +
-    "(which element on one screen navigates to which other screen):\n\n" +
+    "flow, in no particular order, each followed by any existing " +
+    "annotations on it (real behavior the team already documented -- factor " +
+    "these into your judgment of the flow just as much as what's visibly on " +
+    "screen, since a screenshot alone can't show interaction/behavior). " +
+    "Here is how the frames connect to each other (which element on one " +
+    "screen navigates to which other screen):\n\n" +
     `${connectionsList}\n\n` +
     "IMPORTANT: this may only be a partial slice of the complete product -- " +
     "just the specific feature or update being designed, not the entire " +

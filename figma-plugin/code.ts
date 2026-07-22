@@ -245,6 +245,41 @@ function getAnnotationText(annotations: readonly Annotation[]): string | undefin
   return texts.length > 0 ? texts.join("; ") : undefined;
 }
 
+interface FrameAnnotation {
+  frameId: string;
+  elementDescription: string;
+  text: string;
+}
+
+/**
+ * Collects existing annotations anywhere within a frame's subtree, for the
+ * flow review -- these often document behavior/actions that aren't visible
+ * in a static screenshot (e.g. "shows a confirmation toast after submit"),
+ * which matters for judging whether the flow is actually logical/user-
+ * friendly, not just how it looks.
+ */
+function collectFrameAnnotations(frame: FrameNode): FrameAnnotation[] {
+  const found: FrameAnnotation[] = [];
+
+  function visit(node: SceneNode): void {
+    if (node.visible === false) return;
+    if ("annotations" in node) {
+      const text = getAnnotationText((node as SceneNode & { annotations: readonly Annotation[] }).annotations);
+      if (text) {
+        found.push({ frameId: frame.id, elementDescription: findDisplayText(node) || node.name, text });
+      }
+    }
+    if ("children" in node) {
+      for (const child of (node as SceneNode & { children: readonly SceneNode[] }).children) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(frame);
+  return found;
+}
+
 /**
  * Flattens the selected root's descendants into candidate comment
  * targets, each with its bounding box relative to the root's top-left
@@ -492,6 +527,7 @@ async function runFlowReview(): Promise<void> {
 
   figma.ui.postMessage({ type: "status", message: `Rendering ${pageFrames.length} frame(s)...` });
   const frames: { nodeId: string; name: string; image: string; width: number; height: number }[] = [];
+  const frameAnnotations: FrameAnnotation[] = [];
   for (const pageFrame of pageFrames) {
     const node = await figma.getNodeByIdAsync(pageFrame.id);
     if (!node || node.type !== "FRAME") continue;
@@ -506,6 +542,7 @@ async function runFlowReview(): Promise<void> {
         width: box?.width ?? 0,
         height: box?.height ?? 0,
       });
+      frameAnnotations.push(...collectFrameAnnotations(node));
     } catch (err) {
       figma.ui.postMessage({
         type: "error",
@@ -527,6 +564,7 @@ async function runFlowReview(): Promise<void> {
         sectionNodeId: section.id,
         frames,
         connections,
+        frameAnnotations,
       }),
     });
     if (response.status === 401) {
