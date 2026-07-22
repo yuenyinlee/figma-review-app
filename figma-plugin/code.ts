@@ -142,7 +142,7 @@ interface PluginReviewResponse {
   }[];
 }
 
-figma.showUI(__html__, { width: 320, height: 480 });
+figma.showUI(__html__, { width: 320, height: 520 });
 
 const ACCESS_CODE_STORAGE_KEY = "accessCode";
 
@@ -151,10 +151,20 @@ async function getStoredAccessCode(): Promise<string | undefined> {
   return typeof code === "string" && code.length > 0 ? code : undefined;
 }
 
-// Tell the UI right away whether an access code is already stored, so it
-// shows the right view without a visible flash of the wrong one.
-getStoredAccessCode().then((code) => {
-  figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code) });
+type ReviewLanguage = "en" | "ja" | "zh-Hant" | "zh-Hans";
+const LANGUAGE_STORAGE_KEY = "reviewLanguage";
+const VALID_LANGUAGES: ReviewLanguage[] = ["en", "ja", "zh-Hant", "zh-Hans"];
+
+async function getStoredLanguage(): Promise<ReviewLanguage> {
+  const language = await figma.clientStorage.getAsync(LANGUAGE_STORAGE_KEY);
+  return VALID_LANGUAGES.includes(language as ReviewLanguage) ? (language as ReviewLanguage) : "en";
+}
+
+// Tell the UI right away whether an access code is already stored (so it
+// shows the right view without a visible flash of the wrong one), and the
+// current comment-language preference so the segmented control reflects it.
+Promise.all([getStoredAccessCode(), getStoredLanguage()]).then(([code, language]) => {
+  figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code), language });
 });
 
 /**
@@ -565,6 +575,7 @@ async function runFlowReview(): Promise<void> {
         frames,
         connections,
         frameAnnotations,
+        language: await getStoredLanguage(),
       }),
     });
     if (response.status === 401) {
@@ -682,6 +693,7 @@ async function runReview(): Promise<void> {
         frameImage: uint8ArrayToBase64(imageBytes),
         nodes,
         existingAnnotations,
+        language: await getStoredLanguage(),
       }),
     });
     if (response.status === 401) {
@@ -720,7 +732,7 @@ async function runReview(): Promise<void> {
   figma.ui.postMessage({ type: "done", applied, failedCount });
 }
 
-figma.ui.onmessage = (message: { type: string; code?: string }) => {
+figma.ui.onmessage = (message: { type: string; code?: string; language?: string }) => {
   if (message.type === "review") {
     runReview().catch((err) => {
       figma.ui.postMessage({ type: "error", message: `Unexpected error: ${describeError(err)}` });
@@ -733,5 +745,7 @@ figma.ui.onmessage = (message: { type: string; code?: string }) => {
     figma.clientStorage.setAsync(ACCESS_CODE_STORAGE_KEY, message.code).then(() => {
       figma.ui.postMessage({ type: "accessCodeSaved" });
     });
+  } else if (message.type === "setLanguage" && VALID_LANGUAGES.includes(message.language as ReviewLanguage)) {
+    figma.clientStorage.setAsync(LANGUAGE_STORAGE_KEY, message.language);
   }
 };

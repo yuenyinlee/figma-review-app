@@ -19,6 +19,7 @@ import {
   FlowFrame,
   FlowConnection,
   FlowFrameAnnotation,
+  ReviewLanguage,
 } from "./claude";
 import { logReview, listReviews } from "./db";
 import { getGuidelines } from "./guidelines";
@@ -237,12 +238,38 @@ app.post("/review", async (req: Request, res: Response) => {
 // does -- so the backend posts them directly rather than handing critiques
 // back for the plugin to write itself (unlike the old Dev Mode annotations
 // approach, which the team has since decided against in favor of comments).
-const CATEGORY_LABELS: Record<string, string> = {
-  project_brief: "Project Brief",
-  design_system: "Design System Guidelines",
-  accessibility_usability: "Accessibility & Usability",
-  flow_logic: "Flow Logic",
+const CATEGORY_LABELS_BY_LANGUAGE: Record<ReviewLanguage, Record<string, string>> = {
+  en: {
+    project_brief: "Project Brief",
+    design_system: "Design System Guidelines",
+    accessibility_usability: "Accessibility & Usability",
+    flow_logic: "Flow Logic",
+  },
+  ja: {
+    project_brief: "プロジェクト概要",
+    design_system: "デザインシステムガイドライン",
+    accessibility_usability: "アクセシビリティ・ユーザビリティ",
+    flow_logic: "フローロジック",
+  },
+  "zh-Hant": {
+    project_brief: "專案簡介",
+    design_system: "設計系統指南",
+    accessibility_usability: "無障礙與易用性",
+    flow_logic: "流程邏輯",
+  },
+  "zh-Hans": {
+    project_brief: "项目简介",
+    design_system: "设计系统指南",
+    accessibility_usability: "无障碍与易用性",
+    flow_logic: "流程逻辑",
+  },
 };
+
+const VALID_LANGUAGES: ReviewLanguage[] = ["en", "ja", "zh-Hant", "zh-Hans"];
+
+function parseLanguage(value: unknown): ReviewLanguage {
+  return VALID_LANGUAGES.includes(value as ReviewLanguage) ? (value as ReviewLanguage) : "en";
+}
 
 /**
  * Called by the Figma plugin, which runs inside Figma itself. Unlike
@@ -254,7 +281,8 @@ const CATEGORY_LABELS: Record<string, string> = {
  * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
-  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId } = req.body ?? {};
+  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId, language } = req.body ?? {};
+  const reviewLanguage = parseLanguage(language);
 
   if (typeof fileKey !== "string" || typeof nodeId !== "string") {
     return res.status(400).json({
@@ -309,6 +337,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       guidelines,
       projectBrief,
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
+      language: reviewLanguage,
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
@@ -331,7 +360,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       error?: string;
     }[] = [];
     for (const annotation of annotations) {
-      const categoryLabel = CATEGORY_LABELS[annotation.category] ?? annotation.category;
+      const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][annotation.category] ?? annotation.category;
       const message = `[${categoryLabel}] ${annotation.elementDescription}: ${annotation.comment}`;
       try {
         const commentId = await postFigmaComment(fileKey, annotation.nodeId, message);
@@ -390,7 +419,8 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
  * Deliberately doesn't touch design-system references/guidelines.
  */
 app.post("/flow-review", async (req: Request, res: Response) => {
-  const { fileKey, sectionNodeId, frames, connections, pageNodeId, frameAnnotations } = req.body ?? {};
+  const { fileKey, sectionNodeId, frames, connections, pageNodeId, frameAnnotations, language } = req.body ?? {};
+  const reviewLanguage = parseLanguage(language);
 
   if (typeof fileKey !== "string" || typeof sectionNodeId !== "string") {
     return res.status(400).json({
@@ -439,6 +469,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       connections: Array.isArray(connections) ? (connections as FlowConnection[]) : [],
       projectBrief,
       frameAnnotations: Array.isArray(frameAnnotations) ? (frameAnnotations as FlowFrameAnnotation[]) : undefined,
+      language: reviewLanguage,
     });
     console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
 
@@ -455,7 +486,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       error?: string;
     }[] = [];
     for (const critique of critiques) {
-      const categoryLabel = CATEGORY_LABELS[critique.category] ?? critique.category;
+      const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][critique.category] ?? critique.category;
       const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
       const dims = frameDimsById.get(critique.frameId);
       const clampedX = Math.min(1, Math.max(0, critique.x));

@@ -95,6 +95,38 @@
     color: #666;
     text-align: center;
   }
+  #language-label {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 4px;
+  }
+  .segmented {
+    display: flex;
+    border: 1px solid #18a0fb;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .segmented .segment {
+    flex: 1;
+    width: auto;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: white;
+    color: #18a0fb;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 4px;
+    cursor: pointer;
+  }
+  .segmented .segment + .segment {
+    border-left: 1px solid #18a0fb;
+  }
+  .segmented .segment.active {
+    background: #18a0fb;
+    color: white;
+  }
 </style>
 
 <div id="access-code-view" style="display: none">
@@ -104,6 +136,13 @@
 </div>
 
 <div id="review-view" style="display: none">
+  <div id="language-label">Comment language</div>
+  <div id="language-control" class="segmented">
+    <button type="button" class="segment" data-lang="en">EN</button>
+    <button type="button" class="segment" data-lang="ja">日本語</button>
+    <button type="button" class="segment" data-lang="zh-Hant">繁中</button>
+    <button type="button" class="segment" data-lang="zh-Hans">简中</button>
+  </div>
   <button id="review-button">Review Selected Frame</button>
   <button id="review-flow-button" class="secondary">Review User Flow</button>
   <a href="#" id="change-access-code-link">Change access code</a>
@@ -122,6 +161,13 @@
   const accessCodeInput = document.getElementById("access-code-input");
   const saveAccessCodeButton = document.getElementById("save-access-code-button");
   const changeAccessCodeLink = document.getElementById("change-access-code-link");
+  const languageControl = document.getElementById("language-control");
+
+  function setActiveLanguageSegment(lang) {
+    for (const segment of languageControl.querySelectorAll(".segment")) {
+      segment.classList.toggle("active", segment.dataset.lang === lang);
+    }
+  }
 
   function setStatus(text, isError) {
     status.textContent = text || "";
@@ -195,11 +241,20 @@
     showAccessCodeView();
   });
 
+  languageControl.addEventListener("click", (event) => {
+    const segment = event.target.closest(".segment");
+    if (!segment) return;
+    const lang = segment.dataset.lang;
+    setActiveLanguageSegment(lang);
+    parent.postMessage({ pluginMessage: { type: "setLanguage", language: lang } }, "*");
+  });
+
   window.onmessage = (event) => {
     const message = event.data.pluginMessage;
     if (!message) return;
 
     if (message.type === "init") {
+      setActiveLanguageSegment(message.language || "en");
       if (message.hasAccessCode) {
         showReviewView();
       } else {

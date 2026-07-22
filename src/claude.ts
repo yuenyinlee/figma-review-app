@@ -20,6 +20,20 @@ export interface ImageInput {
   mediaType: "image/png";
 }
 
+export type ReviewLanguage = "en" | "ja" | "zh-Hant" | "zh-Hans";
+
+export const LANGUAGE_NAMES: Record<ReviewLanguage, string> = {
+  en: "English",
+  ja: "Japanese (日本語)",
+  "zh-Hant": "Traditional Chinese (繁體中文)",
+  "zh-Hans": "Simplified Chinese (简体中文)",
+};
+
+function languageInstruction(language: ReviewLanguage | undefined): string {
+  const name = LANGUAGE_NAMES[language ?? "en"];
+  return `\n\nWrite every comment and elementDescription entirely in ${name}.`;
+}
+
 export interface LabeledImage {
   /** Human-readable label, e.g. "Components" or "Typography" -- shown to Claude. */
   label: string;
@@ -249,6 +263,8 @@ export interface NodeBoundCritiqueInput {
   projectBrief?: string;
   /** Design specs designers already annotated directly on specific layers. */
   existingAnnotations?: ExistingAnnotation[];
+  /** Which language to write comments/elementDescription in. Defaults to English. */
+  language?: ReviewLanguage;
 }
 
 function buildNodeAnnotationsSchema(nodeIds: string[]) {
@@ -504,6 +520,8 @@ export async function getNodeBoundAnnotations(
       "infer.";
   }
 
+  instructions += languageInstruction(input.language);
+
   content.push({ type: "text", text: instructions });
 
   const nodeIds = input.nodes.map((n) => n.id);
@@ -567,6 +585,8 @@ export interface FlowCritiqueInput {
   /** Existing annotations on frames' layers -- often document behavior/actions
    * (e.g. "shows a toast after submit") that aren't visible in a static image. */
   frameAnnotations?: FlowFrameAnnotation[];
+  /** Which language to write comments/elementDescription in. Defaults to English. */
+  language?: ReviewLanguage;
 }
 
 const FLOW_CATEGORY_SLUGS: FlowCategorySlug[] = ["project_brief", "flow_logic"];
@@ -727,6 +747,8 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
       "the flow actually accomplishes what's being asked for, and call out " +
       `anything missing or inconsistent with it:\n\n"""\n${input.projectBrief}\n"""`;
   }
+
+  instructions += languageInstruction(input.language);
 
   content.push({ type: "text", text: instructions });
 
