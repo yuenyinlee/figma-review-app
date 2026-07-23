@@ -23,7 +23,7 @@ import {
   ReviewLanguage,
 } from "./claude";
 import { logReview, listReviews } from "./db";
-import { getGuidelines, parseDriveDocId, fetchDriveFileText } from "./guidelines";
+import { getGuidelines, fetchDriveFileText } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
 
@@ -600,8 +600,7 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
   }
 
   try {
-    const docId = parseDriveDocId(minutesDocUrl.trim());
-    const minutesText = await fetchDriveFileText(docId);
+    const minutesText = await fetchDriveFileText(minutesDocUrl.trim());
     if (minutesText.length === 0) {
       return res.status(400).json({ error: "The meeting minutes document appears to be empty" });
     }

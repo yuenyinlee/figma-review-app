@@ -13,17 +13,32 @@ export function parseDriveDocId(raw: string): string {
 }
 
 /**
- * Fetches the plain-text content of a link-shared Drive file by id. Shared
- * by the guidelines file fetch below and the meeting-minutes extraction
- * feature, which points this at whatever doc link the user submits.
+ * Native Google Docs (created in Docs, not uploaded) aren't downloadable
+ * raw bytes -- Drive's file-download endpoint 500s on them. They need
+ * Docs' own export endpoint instead. A bare id or a /file/d/ link (an
+ * uploaded file, e.g. the guidelines .md) uses the Drive endpoint as before.
  */
-export async function fetchDriveFileText(docId: string): Promise<string> {
-  const url = `https://drive.google.com/uc?export=download&id=${docId}`;
+function isNativeDocsLink(raw: string): boolean {
+  return /\/document\/d\//.test(raw);
+}
+
+/**
+ * Fetches the plain-text content of a link-shared Google Doc or Drive file
+ * -- accepts either the full share URL or a bare id. Shared by the
+ * guidelines file fetch below and the meeting-minutes extraction feature,
+ * which points this at whatever doc link the user submits.
+ */
+export async function fetchDriveFileText(link: string): Promise<string> {
+  const id = parseDriveDocId(link);
+  const url = isNativeDocsLink(link)
+    ? `https://docs.google.com/document/d/${id}/export?format=txt`
+    : `https://drive.google.com/uc?export=download&id=${id}`;
+
   const res = await fetch(url, { timeout: REQUEST_TIMEOUT_MS });
 
   if (!res.ok) {
     throw new Error(
-      `Failed to fetch Drive file (${res.status}). Make sure it's shared as ` +
+      `Failed to fetch the doc (${res.status}). Make sure it's shared as ` +
         `"Anyone with the link can view".`
     );
   }
@@ -31,27 +46,20 @@ export async function fetchDriveFileText(docId: string): Promise<string> {
   const contentType = res.headers.get("content-type") ?? "";
   const content = (await res.text()).trim();
 
-  // A small text file should come back directly. If Drive instead serves an
-  // HTML page, it's either a sharing-permission issue or a download
-  // confirmation interstitial -- either way, that HTML isn't the file's
-  // content, so surface a clear error instead of silently using it as one.
+  // A small text file/export should come back directly. If we instead get
+  // an HTML page, it's either a sharing-permission issue (redirected to a
+  // sign-in page) or a download confirmation interstitial -- either way,
+  // that HTML isn't the doc's content, so surface a clear error instead of
+  // silently using it as one.
   if (contentType.includes("text/html")) {
     throw new Error(
-      "Got an HTML page instead of the file's content -- check that it's shared as " +
-        '"Anyone with the link can view", and that the link points at the file itself, ' +
+      "Got an HTML page instead of the doc's content -- check that it's shared as " +
+        '"Anyone with the link can view", and that the link points at the doc itself, ' +
         "not a folder."
     );
   }
 
   return content;
-}
-
-/**
- * GUIDELINES_DOC_ID can be just the doc's id, or the whole share URL.
- */
-function getConfiguredDocId(): string | undefined {
-  const raw = process.env.GUIDELINES_DOC_ID;
-  return raw ? parseDriveDocId(raw) : undefined;
 }
 
 /**
@@ -65,9 +73,9 @@ function getConfiguredDocId(): string | undefined {
  * empty -- this feature is optional.
  */
 export async function getGuidelines(): Promise<string | undefined> {
-  const docId = getConfiguredDocId();
-  if (!docId) return undefined;
+  const raw = process.env.GUIDELINES_DOC_ID;
+  if (!raw) return undefined;
 
-  const content = await fetchDriveFileText(docId);
+  const content = await fetchDriveFileText(raw);
   return content.length > 0 ? content : undefined;
 }
