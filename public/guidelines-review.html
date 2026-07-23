@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Guidelines from Meeting Minutes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body {
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    color: #1e1e1e;
+    margin: 0;
+    padding: 24px;
+    background: #fafafa;
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: #666;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: white;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  button {
+    padding: 10px 16px;
+    background: #18a0fb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #b3e0ff;
+    cursor: default;
+  }
+  button.secondary {
+    background: transparent;
+    color: #18a0fb;
+    border: 1px solid #18a0fb;
+  }
+  #status {
+    margin-top: 10px;
+    color: #666;
+  }
+  #status.error {
+    color: #d32f2f;
+  }
+  #access-code-view p {
+    margin: 0 0 8px;
+    color: #666;
+  }
+  #change-access-code-link {
+    display: block;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #666;
+  }
+  .candidate {
+    border-top: 1px solid #e5e5e5;
+    padding-top: 14px;
+    margin-top: 14px;
+  }
+  .candidate:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .candidate .guideline-text {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .candidate .rationale {
+    color: #666;
+    font-size: 12px;
+    display: block;
+    margin-bottom: 8px;
+  }
+  .candidate label.include {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .verify-status {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+  }
+  .verify-status.pending {
+    background: #eee;
+    color: #666;
+  }
+  .verify-status.pass {
+    background: #d3f9d8;
+    color: #1b7a2b;
+  }
+  .verify-status.fail {
+    background: #ffd8d8;
+    color: #c22b2b;
+  }
+  .verify-status.neutral {
+    background: #eee;
+    color: #666;
+  }
+  .verify-reasoning {
+    font-size: 12px;
+    color: #444;
+    margin: 4px 0;
+  }
+  .verify-comment {
+    font-size: 12px;
+    color: #444;
+    font-style: italic;
+    margin: 4px 0;
+  }
+  .mockup-image {
+    max-width: 240px;
+    display: block;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    margin-top: 6px;
+  }
+  #final-section {
+    display: none;
+  }
+  #final-text {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 120px;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Guidelines from Meeting Minutes</h1>
+  <div class="subtitle">
+    Paste a link to a meeting minutes Google Doc to pull out candidate design guidelines,
+    verify each against the real review pipeline, and pick which ones to add.
+  </div>
+
+  <div id="access-code-view" class="card" style="display: none">
+    <p>Enter the team access code to use this page.</p>
+    <input id="access-code-input" type="password" placeholder="Access code" />
+    <button id="save-access-code-button">Save</button>
+  </div>
+
+  <div id="main-view" class="card" style="display: none">
+    <input id="minutes-url-input" type="text" placeholder="Meeting minutes Google Doc link" />
+    <button id="extract-button">Extract Candidate Guidelines</button>
+    <a href="#" id="change-access-code-link">Change access code</a>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="candidates-card" class="card" style="display: none">
+    <div id="candidates"></div>
+  </div>
+
+  <div id="final-section" class="card">
+    <strong>Selected guidelines -- paste into the guidelines doc:</strong>
+    <textarea id="final-text" readonly></textarea>
+    <button id="copy-button" class="secondary">Copy to clipboard</button>
+  </div>
+</div>
+
+<script>
+  const ACCESS_CODE_KEY = "guidelinesReviewAccessCode";
+
+  const accessCodeView = document.getElementById("access-code-view");
+  const mainView = document.getElementById("main-view");
+  const accessCodeInput = document.getElementById("access-code-input");
+  const saveAccessCodeButton = document.getElementById("save-access-code-button");
+  const changeAccessCodeLink = document.getElementById("change-access-code-link");
+  const minutesUrlInput = document.getElementById("minutes-url-input");
+  const extractButton = document.getElementById("extract-button");
+  const statusEl = document.getElementById("status");
+  const candidatesCard = document.getElementById("candidates-card");
+  const candidatesEl = document.getElementById("candidates");
+  const finalSection = document.getElementById("final-section");
+  const finalText = document.getElementById("final-text");
+  const copyButton = document.getElementById("copy-button");
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text || "";
+    statusEl.className = isError ? "error" : "";
+  }
+
+  function showAccessCodeView(message) {
+    accessCodeView.style.display = "block";
+    mainView.style.display = "none";
+    setStatus(message, Boolean(message));
+  }
+
+  function showMainView() {
+    accessCodeView.style.display = "none";
+    mainView.style.display = "block";
+    setStatus("");
+  }
+
+  if (localStorage.getItem(ACCESS_CODE_KEY)) {
+    showMainView();
+  } else {
+    showAccessCodeView();
+  }
+
+  saveAccessCodeButton.addEventListener("click", () => {
+    const code = accessCodeInput.value.trim();
+    if (!code) return;
+    localStorage.setItem(ACCESS_CODE_KEY, code);
+    showMainView();
+  });
+
+  changeAccessCodeLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    accessCodeInput.value = "";
+    showAccessCodeView();
+  });
+
+  async function apiFetch(path, options) {
+    options = options || {};
+    const code = localStorage.getItem(ACCESS_CODE_KEY);
+    const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+    if (code) headers["X-Access-Code"] = code;
+
+    const res = await fetch(path, Object.assign({}, options, { headers }));
+
+    if (res.status === 401) {
+      localStorage.removeItem(ACCESS_CODE_KEY);
+      showAccessCodeView("Access code needed (or incorrect) -- enter it again.");
+      const err = new Error("Unauthorized");
+      err.handled = true;
+      throw err;
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Request failed (${res.status})`);
+    }
+    return data;
+  }
+
+  function renderCandidates(candidates) {
+    candidatesEl.innerHTML = "";
+    candidatesCard.style.display = "block";
+    candidates.forEach((candidate, i) => {
+      const div = document.createElement("div");
+      div.className = "candidate";
+      div.innerHTML = `
+        <span class="verify-status pending" id="verify-status-${i}">Verifying...</span>
+        <span class="guideline-text">${escapeHtml(candidate.guideline)}</span>
+        <span class="rationale">${escapeHtml(candidate.rationale)}</span>
+        <div id="verify-details-${i}"></div>
+        <label class="include">
+          <input type="checkbox" class="include-checkbox" data-index="${i}" />
+          Include in guidelines
+        </label>
+      `;
+      candidatesEl.appendChild(div);
+    });
+
+    candidatesEl.querySelectorAll(".include-checkbox").forEach((checkbox) => {
+      checkbox.addEventListener("change", updateFinalOutput);
+    });
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value;
+    return div.innerHTML;
+  }
+
+  function renderVerificationResult(i, result) {
+    const statusEl = document.getElementById(`verify-status-${i}`);
+    const detailsEl = document.getElementById(`verify-details-${i}`);
+    const checkbox = document.querySelector(`.include-checkbox[data-index="${i}"]`);
+
+    if (result.passed === true) {
+      statusEl.textContent = "Verified -- caught by the review pipeline";
+      statusEl.className = "verify-status pass";
+      checkbox.checked = true;
+    } else if (result.passed === false) {
+      statusEl.textContent = "Not caught -- reconsider before adding";
+      statusEl.className = "verify-status fail";
+    } else {
+      statusEl.textContent = "Not testable from a static frame";
+      statusEl.className = "verify-status neutral";
+    }
+
+    let detailsHtml = `<div class="verify-reasoning">${escapeHtml(result.reasoning || "")}</div>`;
+    if (result.matchingComment) {
+      detailsHtml += `<div class="verify-comment">"${escapeHtml(result.matchingComment)}"</div>`;
+    }
+    if (result.mockupImageBase64) {
+      detailsHtml += `<img class="mockup-image" src="data:image/png;base64,${result.mockupImageBase64}" alt="Test mockup" />`;
+    }
+    detailsEl.innerHTML = detailsHtml;
+    updateFinalOutput();
+  }
+
+  async function verifyCandidate(i, candidate) {
+    try {
+      const result = await apiFetch("/verify-guideline", {
+        method: "POST",
+        body: JSON.stringify({ candidateGuideline: candidate.guideline }),
+      });
+      renderVerificationResult(i, result);
+    } catch (err) {
+      if (err.handled) throw err;
+      const statusEl = document.getElementById(`verify-status-${i}`);
+      statusEl.textContent = `Verification failed: ${err.message}`;
+      statusEl.className = "verify-status fail";
+    }
+  }
+
+  async function verifyAllSequentially(candidates) {
+    for (let i = 0; i < candidates.length; i++) {
+      await verifyCandidate(i, candidates[i]);
+    }
+  }
+
+  function updateFinalOutput() {
+    const checked = Array.from(document.querySelectorAll(".include-checkbox:checked"));
+    if (checked.length === 0) {
+      finalSection.style.display = "none";
+      return;
+    }
+    const indices = checked.map((c) => Number(c.dataset.index));
+    const lines = indices.map((i) => currentCandidates[i].guideline);
+    finalText.value = lines.join("\n\n");
+    finalSection.style.display = "block";
+  }
+
+  let currentCandidates = [];
+
+  extractButton.addEventListener("click", async () => {
+    const url = minutesUrlInput.value.trim();
+    if (!url) return;
+
+    extractButton.disabled = true;
+    candidatesCard.style.display = "none";
+    finalSection.style.display = "none";
+    candidatesEl.innerHTML = "";
+    setStatus("Fetching meeting minutes and extracting candidates...");
+
+    try {
+      const data = await apiFetch("/extract-guidelines", {
+        method: "POST",
+        body: JSON.stringify({ minutesDocUrl: url }),
+      });
+      const candidates = data.candidates || [];
+      currentCandidates = candidates;
+
+      if (candidates.length === 0) {
+        setStatus("No new candidate guidelines found in these minutes.");
+        return;
+      }
+
+      setStatus(`Found ${candidates.length} candidate(s) -- verifying each against the review pipeline...`);
+      renderCandidates(candidates);
+      await verifyAllSequentially(candidates);
+      setStatus(`Done -- verified ${candidates.length} candidate(s).`);
+    } catch (err) {
+      if (!err.handled) {
+        setStatus(err.message || String(err), true);
+      }
+    } finally {
+      extractButton.disabled = false;
+    }
+  });
+
+  copyButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(finalText.value);
+      setStatus("Copied to clipboard.");
+    } catch (err) {
+      setStatus("Couldn't copy automatically -- select the text and copy manually.", true);
+    }
+  });
+</script>
+</body>
+</html>

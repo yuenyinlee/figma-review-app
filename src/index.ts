@@ -1,5 +1,6 @@
 import "dotenv/config";
 import crypto from "crypto";
+import path from "path";
 import express, { Request, Response } from "express";
 import {
   fetchFrameImageBase64,
@@ -22,8 +23,9 @@ import {
   ReviewLanguage,
 } from "./claude";
 import { logReview, listReviews } from "./db";
-import { getGuidelines } from "./guidelines";
+import { getGuidelines, parseDriveDocId, fetchDriveFileText } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
+import { extractCandidateGuidelines } from "./guidelineExtraction";
 
 const app = express();
 app.use(express.json({ limit: "15mb" }));
@@ -54,11 +56,15 @@ function isValidAccessCode(provided: string | undefined, required: string): bool
 // The plugin is published on Figma Community -- our plan only offers Public
 // visibility (no Unlisted option), so anyone could find and install it and
 // start hitting this backend on our API budget. Require a shared team access
-// code on every route except the bare health check. Left unset, this fails
-// open so local dev/testing is unaffected.
+// code on every route except the bare health check and the guidelines-review
+// page shell itself (that page has no sensitive data of its own -- it's just
+// a form -- and prompts for the code client-side before calling any of the
+// actual data endpoints below). Left unset, this fails open so local
+// dev/testing is unaffected.
+const ACCESS_CODE_EXEMPT_PATHS = ["/", "/guidelines-review"];
 app.use((req: Request, res: Response, next) => {
   const requiredCode = process.env.TEAM_ACCESS_CODE;
-  if (!requiredCode || req.path === "/") {
+  if (!requiredCode || ACCESS_CODE_EXEMPT_PATHS.includes(req.path)) {
     return next();
   }
   if (!isValidAccessCode(req.header("X-Access-Code"), requiredCode)) {
@@ -560,6 +566,49 @@ app.post("/verify-guideline", async (req: Request, res: Response) => {
   try {
     const result = await verifyGuideline(candidateGuideline.trim());
     return res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * Standalone page for turning meeting minutes into candidate guidelines --
+ * not tied to any specific Figma file, so it lives here instead of in the
+ * plugin. The page itself has no sensitive data (see the access-code
+ * exemption above); its own JS prompts for/stores the code before calling
+ * /extract-guidelines or /verify-guideline.
+ */
+app.get("/guidelines-review", (_req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, "..", "public", "guidelines-review.html"));
+});
+
+/**
+ * Reads a meeting minutes Google Doc and pulls out candidate guidelines --
+ * the first step of the semi-automatic guidelines-update flow. Each
+ * candidate still needs to be checked via POST /verify-guideline (the page
+ * does this itself, one call per candidate) before a human decides whether
+ * to actually paste it into the guidelines doc.
+ */
+app.post("/extract-guidelines", async (req: Request, res: Response) => {
+  const { minutesDocUrl } = req.body ?? {};
+
+  if (typeof minutesDocUrl !== "string" || minutesDocUrl.trim().length === 0) {
+    return res.status(400).json({
+      error: "Request body must include a non-empty string field 'minutesDocUrl'",
+    });
+  }
+
+  try {
+    const docId = parseDriveDocId(minutesDocUrl.trim());
+    const minutesText = await fetchDriveFileText(docId);
+    if (minutesText.length === 0) {
+      return res.status(400).json({ error: "The meeting minutes document appears to be empty" });
+    }
+
+    const existingGuidelines = await getGuidelines();
+    const candidates = await extractCandidateGuidelines(minutesText, existingGuidelines);
+    return res.json({ candidates });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: message });
