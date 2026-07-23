@@ -63,14 +63,25 @@ export async function fetchDriveFileText(link: string): Promise<string> {
 }
 
 /**
+ * The guidelines file's id, parsed from GUIDELINES_DOC_ID -- needed by
+ * src/driveWrite.ts to know which file to update when appending newly
+ * confirmed guidelines.
+ */
+export function getGuidelinesDocId(): string | undefined {
+  const raw = process.env.GUIDELINES_DOC_ID;
+  return raw ? parseDriveDocId(raw) : undefined;
+}
+
+/**
  * Reads the team's current design guidelines from a link-shared Drive file
  * (the guidelines .md, uploaded directly rather than a native Google Doc)
  * -- the single source of truth every review (and guideline-verification
- * run) checks a frame against. Editing happens by re-uploading/editing that
- * file in Drive, not through this app; we just fetch the latest content on
- * every call, so an edit takes effect on the very next review with no
- * redeploy needed. Returns undefined if no file is configured, or it's
- * empty -- this feature is optional.
+ * run) checks a frame against. Most edits happen directly in Drive, but
+ * confirmed guidelines from the meeting-minutes review page are appended
+ * here too (see src/driveWrite.ts). We fetch the latest content on every
+ * call, so any edit takes effect on the very next review with no redeploy
+ * needed. Returns undefined if no file is configured, or it's empty --
+ * this feature is optional.
  */
 export async function getGuidelines(): Promise<string | undefined> {
   const raw = process.env.GUIDELINES_DOC_ID;

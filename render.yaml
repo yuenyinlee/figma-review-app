@@ -18,3 +18,5 @@ services:
         sync: false
       - key: TEAM_ACCESS_CODE
         sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY
+        sync: false

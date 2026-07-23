@@ -26,6 +26,7 @@ import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
+import { appendGuidelinesToDoc } from "./driveWrite";
 
 const app = express();
 app.use(express.json({ limit: "15mb" }));
@@ -608,6 +609,29 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
     const existingGuidelines = await getGuidelines();
     const candidates = await extractCandidateGuidelines(minutesText, existingGuidelines, parseLanguage(language));
     return res.json({ candidates });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * Appends the guidelines a human confirmed (after reviewing each one's
+ * verification result on the guidelines-review page) to the end of the
+ * guidelines .md file, under a dated heading. See src/driveWrite.ts.
+ */
+app.post("/confirm-guidelines", async (req: Request, res: Response) => {
+  const { guidelines } = req.body ?? {};
+
+  if (!Array.isArray(guidelines) || guidelines.length === 0 || guidelines.some((g) => typeof g !== "string")) {
+    return res.status(400).json({
+      error: "Request body must include a non-empty array of string 'guidelines'",
+    });
+  }
+
+  try {
+    await appendGuidelinesToDoc(guidelines);
+    return res.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: message });
