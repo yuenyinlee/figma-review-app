@@ -1,5 +1,13 @@
 import sharp from "sharp";
-import { getClient, MODEL, getNodeBoundAnnotations, NodeInfo, NodeBoundAnnotation } from "./claude";
+import {
+  getClient,
+  MODEL,
+  getNodeBoundAnnotations,
+  NodeInfo,
+  NodeBoundAnnotation,
+  ReviewLanguage,
+  LANGUAGE_NAMES,
+} from "./claude";
 import { getGuidelines } from "./guidelines";
 
 /**
@@ -107,8 +115,13 @@ const SCENARIO_SCHEMA = {
  * literally writing the violation as a caption and reading it back, which
  * looks like a pass but proves nothing about real detection.
  */
-async function generateMockupScenario(candidateGuideline: string): Promise<MockupScenario> {
+async function generateMockupScenario(
+  candidateGuideline: string,
+  language?: ReviewLanguage
+): Promise<MockupScenario> {
   const anthropic = getClient();
+
+  const languageName = LANGUAGE_NAMES[language ?? "en"];
 
   const prompt =
     "You are creating a tiny synthetic test mockup to verify whether an " +
@@ -140,7 +153,8 @@ async function generateMockupScenario(candidateGuideline: string): Promise<Mocku
     "a component instance; if it's about variant or color choice, give it a " +
     "plausible mainComponentName and a fill color/label that make the " +
     "mismatch visually obvious. Keep the canvas small and the violation " +
-    "isolated -- don't add unrelated elements or issues.";
+    "isolated -- don't add unrelated elements or issues.\n\n" +
+    `Write the untestableReason field, if used, entirely in ${languageName}.`;
 
   const response = await anthropic.messages.create(
     {
@@ -271,7 +285,8 @@ interface JudgeResult {
  */
 async function judgeVerification(
   candidateGuideline: string,
-  annotations: NodeBoundAnnotation[]
+  annotations: NodeBoundAnnotation[],
+  language?: ReviewLanguage
 ): Promise<JudgeResult> {
   const anthropic = getClient();
 
@@ -280,6 +295,8 @@ async function judgeVerification(
       ? annotations.map((a, i) => `${i + 1}. [${a.category}] ${a.comment}`).join("\n")
       : "(no annotations were produced)";
 
+  const languageName = LANGUAGE_NAMES[language ?? "en"];
+
   const prompt =
     "A design-review tool was tested against a synthetic mockup built " +
     "specifically to violate this candidate guideline:\n\n" +
@@ -287,7 +304,8 @@ async function judgeVerification(
     `Here is what the tool actually flagged:\n\n${annotationsText}\n\n` +
     "Did the tool's output actually catch a violation of this specific " +
     "guideline (not just any issue)? Be strict -- a vaguely related comment " +
-    "doesn't count as a pass.";
+    "doesn't count as a pass.\n\n" +
+    `Write the reasoning field entirely in ${languageName}.`;
 
   const response = await anthropic.messages.create(
     {
@@ -330,8 +348,11 @@ export interface GuidelineVerificationResult {
  * (combined with the current guidelines file, as it would look post-update),
  * and has Claude judge whether the violation was actually caught.
  */
-export async function verifyGuideline(candidateGuideline: string): Promise<GuidelineVerificationResult> {
-  const scenario = await generateMockupScenario(candidateGuideline);
+export async function verifyGuideline(
+  candidateGuideline: string,
+  language?: ReviewLanguage
+): Promise<GuidelineVerificationResult> {
+  const scenario = await generateMockupScenario(candidateGuideline, language);
 
   if (!scenario.testable) {
     return {
@@ -356,9 +377,10 @@ export async function verifyGuideline(candidateGuideline: string): Promise<Guide
     frame: { base64: mockupImageBase64, mediaType: "image/png" },
     nodes,
     guidelines: combinedGuidelines,
+    language,
   });
 
-  const judgment = await judgeVerification(candidateGuideline, annotations);
+  const judgment = await judgeVerification(candidateGuideline, annotations, language);
 
   return {
     passed: judgment.passed,

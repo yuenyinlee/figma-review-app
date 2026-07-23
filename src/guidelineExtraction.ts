@@ -1,4 +1,4 @@
-import { getClient, MODEL } from "./claude";
+import { getClient, MODEL, ReviewLanguage, LANGUAGE_NAMES } from "./claude";
 
 export interface CandidateGuideline {
   /** A clear, actionable guideline sentence, matching the existing doc's style. */
@@ -54,7 +54,8 @@ interface ExtractionResponse {
  */
 export async function extractCandidateGuidelines(
   minutesText: string,
-  existingGuidelines?: string
+  existingGuidelines?: string,
+  language?: ReviewLanguage
 ): Promise<CandidateGuideline[]> {
   const anthropic = getClient();
 
@@ -62,6 +63,8 @@ export async function extractCandidateGuidelines(
     ? `Here are the guidelines already documented -- do not propose anything already adequately ` +
       `covered by these, only genuinely new additions:\n"""\n${existingGuidelines}\n"""\n\n`
     : "";
+
+  const languageName = LANGUAGE_NAMES[language ?? "en"];
 
   const prompt =
     "You are helping a design team turn meeting notes into additions to their design " +
@@ -75,7 +78,8 @@ export async function extractCandidateGuidelines(
     "Skip vague chatter, undecided debates, action items unrelated to design rules, and anything " +
     "already covered by the existing guidelines above. If the notes don't contain any genuinely " +
     "new, concrete decision, return an empty list -- do not invent or pad with restatements of " +
-    "existing guidelines or generic best practices that weren't actually discussed.";
+    "existing guidelines or generic best practices that weren't actually discussed.\n\n" +
+    `Write the guideline and rationale fields entirely in ${languageName}.`;
 
   const response = await anthropic.messages.create(
     {

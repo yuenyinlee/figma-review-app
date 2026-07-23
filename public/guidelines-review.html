@@ -77,6 +77,36 @@
     font-size: 12px;
     color: #666;
   }
+  #language-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+  }
+  .segmented {
+    display: flex;
+    border: 1px solid #18a0fb;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .segmented .segment {
+    flex: 1;
+    padding: 8px 4px;
+    border: none;
+    border-radius: 0;
+    background: white;
+    color: #18a0fb;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .segmented .segment + .segment {
+    border-left: 1px solid #18a0fb;
+  }
+  .segmented .segment.active {
+    background: #18a0fb;
+    color: white;
+  }
   .candidate {
     border-top: 1px solid #e5e5e5;
     padding-top: 14px;
@@ -178,6 +208,13 @@
   </div>
 
   <div id="main-view" class="card" style="display: none">
+    <div id="language-label">Guideline language</div>
+    <div id="language-control" class="segmented">
+      <button type="button" class="segment" data-lang="en">EN</button>
+      <button type="button" class="segment" data-lang="ja">日本語</button>
+      <button type="button" class="segment" data-lang="zh-Hant">繁中</button>
+      <button type="button" class="segment" data-lang="zh-Hans">简中</button>
+    </div>
     <input id="minutes-url-input" type="text" placeholder="Meeting minutes Google Doc link" />
     <button id="extract-button">Extract Candidate Guidelines</button>
     <a href="#" id="change-access-code-link">Change access code</a>
@@ -198,12 +235,15 @@
 
 <script>
   const ACCESS_CODE_KEY = "guidelinesReviewAccessCode";
+  const LANGUAGE_KEY = "guidelinesReviewLanguage";
+  const VALID_LANGUAGES = ["en", "ja", "zh-Hant", "zh-Hans"];
 
   const accessCodeView = document.getElementById("access-code-view");
   const mainView = document.getElementById("main-view");
   const accessCodeInput = document.getElementById("access-code-input");
   const saveAccessCodeButton = document.getElementById("save-access-code-button");
   const changeAccessCodeLink = document.getElementById("change-access-code-link");
+  const languageControl = document.getElementById("language-control");
   const minutesUrlInput = document.getElementById("minutes-url-input");
   const extractButton = document.getElementById("extract-button");
   const statusEl = document.getElementById("status");
@@ -217,6 +257,26 @@
     statusEl.textContent = text || "";
     statusEl.className = isError ? "error" : "";
   }
+
+  function getStoredLanguage() {
+    const stored = localStorage.getItem(LANGUAGE_KEY);
+    return VALID_LANGUAGES.includes(stored) ? stored : "en";
+  }
+
+  function setActiveLanguageSegment(lang) {
+    for (const segment of languageControl.querySelectorAll(".segment")) {
+      segment.classList.toggle("active", segment.dataset.lang === lang);
+    }
+  }
+
+  setActiveLanguageSegment(getStoredLanguage());
+
+  languageControl.addEventListener("click", (event) => {
+    const segment = event.target.closest(".segment");
+    if (!segment) return;
+    localStorage.setItem(LANGUAGE_KEY, segment.dataset.lang);
+    setActiveLanguageSegment(segment.dataset.lang);
+  });
 
   function showAccessCodeView(message) {
     accessCodeView.style.display = "block";
@@ -334,7 +394,7 @@
     try {
       const result = await apiFetch("/verify-guideline", {
         method: "POST",
-        body: JSON.stringify({ candidateGuideline: candidate.guideline }),
+        body: JSON.stringify({ candidateGuideline: candidate.guideline, language: getStoredLanguage() }),
       });
       renderVerificationResult(i, result);
     } catch (err) {
@@ -378,7 +438,7 @@
     try {
       const data = await apiFetch("/extract-guidelines", {
         method: "POST",
-        body: JSON.stringify({ minutesDocUrl: url }),
+        body: JSON.stringify({ minutesDocUrl: url, language: getStoredLanguage() }),
       });
       const candidates = data.candidates || [];
       currentCandidates = candidates;

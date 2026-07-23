@@ -555,7 +555,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
  * was actually caught. See src/guidelineVerification.ts.
  */
 app.post("/verify-guideline", async (req: Request, res: Response) => {
-  const { candidateGuideline } = req.body ?? {};
+  const { candidateGuideline, language } = req.body ?? {};
 
   if (typeof candidateGuideline !== "string" || candidateGuideline.trim().length === 0) {
     return res.status(400).json({
@@ -564,7 +564,7 @@ app.post("/verify-guideline", async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await verifyGuideline(candidateGuideline.trim());
+    const result = await verifyGuideline(candidateGuideline.trim(), parseLanguage(language));
     return res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -591,7 +591,7 @@ app.get("/guidelines-review", (_req: Request, res: Response) => {
  * to actually paste it into the guidelines doc.
  */
 app.post("/extract-guidelines", async (req: Request, res: Response) => {
-  const { minutesDocUrl } = req.body ?? {};
+  const { minutesDocUrl, language } = req.body ?? {};
 
   if (typeof minutesDocUrl !== "string" || minutesDocUrl.trim().length === 0) {
     return res.status(400).json({
@@ -606,7 +606,7 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
     }
 
     const existingGuidelines = await getGuidelines();
-    const candidates = await extractCandidateGuidelines(minutesText, existingGuidelines);
+    const candidates = await extractCandidateGuidelines(minutesText, existingGuidelines, parseLanguage(language));
     return res.json({ candidates });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
