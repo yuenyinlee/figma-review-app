@@ -185,18 +185,58 @@
     border-radius: 4px;
     margin-top: 6px;
   }
-  #final-section {
+  #add-button-row {
+    display: none;
+    margin-bottom: 16px;
+  }
+  #placement-section {
     display: none;
   }
-  #final-text {
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 120px;
-    font-family: monospace;
-    font-size: 13px;
-    padding: 10px;
-    border: 1px solid #ccc;
+  .placement {
+    border-top: 1px solid #e5e5e5;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .placement:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .placement .guideline-text {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .placement-target {
+    font-size: 12px;
+    color: #444;
+  }
+  .conflict-warning {
+    font-size: 12px;
+    color: #8a4b00;
+    background: #fff4e0;
+    border: 1px solid #ffdca0;
     border-radius: 6px;
+    padding: 8px;
+    margin-top: 6px;
+  }
+  .conflict-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .conflict-choice {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 12px;
+    background: transparent;
+    color: #666;
+    border: 1px solid #ccc;
+  }
+  .conflict-choice.active {
+    background: #18a0fb;
+    color: white;
+    border-color: #18a0fb;
   }
 </style>
 </head>
@@ -233,10 +273,14 @@
     <div id="candidates"></div>
   </div>
 
-  <div id="final-section" class="card">
-    <strong>Selected guidelines:</strong>
-    <textarea id="final-text" readonly></textarea>
-    <button id="confirm-button">Add to Guidelines Doc</button>
+  <div id="add-button-row">
+    <button id="plan-button">Add to Guidelines Doc</button>
+  </div>
+
+  <div id="placement-section" class="card">
+    <strong>Review placement before updating the doc:</strong>
+    <div id="placements"></div>
+    <button id="confirm-button">Confirm and Update Doc</button>
   </div>
 </div>
 
@@ -256,8 +300,10 @@
   const statusEl = document.getElementById("status");
   const candidatesCard = document.getElementById("candidates-card");
   const candidatesEl = document.getElementById("candidates");
-  const finalSection = document.getElementById("final-section");
-  const finalText = document.getElementById("final-text");
+  const addButtonRow = document.getElementById("add-button-row");
+  const planButton = document.getElementById("plan-button");
+  const placementSection = document.getElementById("placement-section");
+  const placementsEl = document.getElementById("placements");
   const confirmButton = document.getElementById("confirm-button");
 
   function setStatus(text, isError) {
@@ -360,7 +406,7 @@
     });
 
     candidatesEl.querySelectorAll(".include-checkbox").forEach((checkbox) => {
-      checkbox.addEventListener("change", updateFinalOutput);
+      checkbox.addEventListener("change", updateAddButtonVisibility);
     });
   }
 
@@ -395,7 +441,7 @@
       detailsHtml += `<img class="mockup-image" src="data:image/png;base64,${result.mockupImageBase64}" alt="Test mockup" />`;
     }
     detailsEl.innerHTML = detailsHtml;
-    updateFinalOutput();
+    updateAddButtonVisibility();
   }
 
   async function verifyCandidate(i, candidate) {
@@ -419,19 +465,15 @@
     }
   }
 
-  function updateFinalOutput() {
-    const checked = Array.from(document.querySelectorAll(".include-checkbox:checked"));
-    if (checked.length === 0) {
-      finalSection.style.display = "none";
-      return;
-    }
-    const indices = checked.map((c) => Number(c.dataset.index));
-    const lines = indices.map((i) => currentCandidates[i].guideline);
-    finalText.value = lines.join("\n\n");
-    finalSection.style.display = "block";
+  function updateAddButtonVisibility() {
+    const checked = document.querySelectorAll(".include-checkbox:checked");
+    addButtonRow.style.display = checked.length > 0 ? "block" : "none";
   }
 
   let currentCandidates = [];
+  let currentPlacements = [];
+  let currentPlacementIndices = [];
+  let conflictDecisions = {};
 
   extractButton.addEventListener("click", async () => {
     const url = minutesUrlInput.value.trim();
@@ -439,7 +481,8 @@
 
     extractButton.disabled = true;
     candidatesCard.style.display = "none";
-    finalSection.style.display = "none";
+    addButtonRow.style.display = "none";
+    placementSection.style.display = "none";
     candidatesEl.innerHTML = "";
     setStatus("Fetching meeting minutes and extracting candidates...");
 
@@ -469,30 +512,116 @@
     }
   });
 
-  confirmButton.addEventListener("click", async () => {
+  planButton.addEventListener("click", async () => {
     const checked = Array.from(document.querySelectorAll(".include-checkbox:checked"));
     if (checked.length === 0) return;
 
     const indices = checked.map((c) => Number(c.dataset.index));
-    const guidelinesToAdd = indices.map((i) => currentCandidates[i].guideline);
+    const guidelines = indices.map((i) => currentCandidates[i].guideline);
 
-    confirmButton.disabled = true;
-    setStatus("Adding to the guidelines doc...");
+    planButton.disabled = true;
+    setStatus("Figuring out where each guideline belongs, and checking for conflicts...");
 
     try {
-      await apiFetch("/confirm-guidelines", {
+      const data = await apiFetch("/plan-guideline-updates", {
         method: "POST",
-        body: JSON.stringify({ guidelines: guidelinesToAdd }),
+        body: JSON.stringify({ guidelines, language: getStoredLanguage() }),
       });
-      setStatus(`Added ${guidelinesToAdd.length} guideline(s) to the doc.`);
-      indices.forEach((i) => {
+      currentPlacements = data.placements || [];
+      currentPlacementIndices = indices;
+      renderPlacements(currentPlacements);
+      setStatus("");
+    } catch (err) {
+      if (!err.handled) {
+        setStatus(err.message || String(err), true);
+      }
+    } finally {
+      planButton.disabled = false;
+    }
+  });
+
+  function renderPlacements(placements) {
+    placementsEl.innerHTML = "";
+    conflictDecisions = {};
+
+    placements.forEach((p, i) => {
+      const div = document.createElement("div");
+      div.className = "placement";
+
+      let html = `<div class="guideline-text">${escapeHtml(p.guideline)}</div>`;
+      if (p.conflictsWithText) {
+        conflictDecisions[i] = false;
+        html += `
+          <div class="conflict-warning">
+            Conflicts with existing rule: "${escapeHtml(p.conflictsWithText)}"<br />
+            ${escapeHtml(p.conflictExplanation || "")}
+          </div>
+          <div class="conflict-actions">
+            <button type="button" class="conflict-choice" data-index="${i}" data-choice="replace">Replace existing rule</button>
+            <button type="button" class="conflict-choice active" data-index="${i}" data-choice="skip">Skip this guideline</button>
+          </div>
+        `;
+      } else {
+        html += `<div class="placement-target">Will be added under <strong>${escapeHtml(p.section)}</strong>${
+          p.isNewSection ? " (new section)" : ""
+        }</div>`;
+      }
+
+      div.innerHTML = html;
+      placementsEl.appendChild(div);
+    });
+
+    placementsEl.querySelectorAll(".conflict-choice").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number(btn.dataset.index);
+        conflictDecisions[i] = btn.dataset.choice === "replace";
+        placementsEl.querySelectorAll(`.conflict-choice[data-index="${i}"]`).forEach((b) => {
+          b.classList.toggle("active", b === btn);
+        });
+      });
+    });
+
+    placementSection.style.display = "block";
+  }
+
+  confirmButton.addEventListener("click", async () => {
+    const items = [];
+    const appliedCandidateIndices = [];
+
+    currentPlacements.forEach((p, i) => {
+      if (p.conflictsWithText && !conflictDecisions[i]) return;
+      items.push({
+        guideline: p.guideline,
+        section: p.section,
+        isNewSection: p.isNewSection,
+        conflictsWithText: p.conflictsWithText && conflictDecisions[i] ? p.conflictsWithText : undefined,
+      });
+      appliedCandidateIndices.push(currentPlacementIndices[i]);
+    });
+
+    if (items.length === 0) {
+      setStatus("Nothing to update -- resolve or skip the conflicts above first.", true);
+      return;
+    }
+
+    confirmButton.disabled = true;
+    setStatus("Updating the guidelines doc...");
+
+    try {
+      await apiFetch("/apply-guideline-updates", {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      });
+      setStatus(`Updated the guidelines doc (${items.length} change(s)).`);
+      appliedCandidateIndices.forEach((i) => {
         const checkbox = document.querySelector(`.include-checkbox[data-index="${i}"]`);
         checkbox.checked = false;
         checkbox.disabled = true;
         const label = document.getElementById(`added-label-${i}`);
         if (label) label.style.display = "inline-block";
       });
-      updateFinalOutput();
+      placementSection.style.display = "none";
+      updateAddButtonVisibility();
     } catch (err) {
       if (!err.handled) {
         setStatus(err.message || String(err), true);

@@ -1,5 +1,7 @@
 import { google } from "googleapis";
 import { getGuidelines, getGuidelinesDocId } from "./guidelines";
+import { applyUpdatesToDoc } from "./guidelinesDocEditor";
+import { GuidelinePlacement } from "./guidelinePlacement";
 
 /**
  * GOOGLE_SERVICE_ACCOUNT_KEY holds the service account's JSON key,
@@ -28,20 +30,16 @@ function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-function formatAppendedSection(guidelines: string[]): string {
-  const date = new Date().toISOString().slice(0, 10);
-  const bullets = guidelines.map((g) => `- ${g}`).join("\n");
-  return `\n\n## Added ${date}\n\n${bullets}\n`;
-}
-
 /**
- * Appends newly-confirmed guidelines to the end of the guidelines .md file,
- * under a dated heading, so the trail of what was added and when stays
- * visible. Re-fetches the current content first so this always builds on
+ * Applies human-confirmed guideline placements/replacements to the
+ * guidelines .md file: each item lands as a new bullet under its target
+ * section (creating the section if needed), or -- if confirmed as
+ * replacing a contradicting rule -- overwrites that rule's exact text in
+ * place. Re-fetches the current content first so this always builds on
  * the latest version rather than a stale copy.
  */
-export async function appendGuidelinesToDoc(guidelines: string[]): Promise<void> {
-  if (guidelines.length === 0) return;
+export async function applyGuidelineUpdates(items: GuidelinePlacement[]): Promise<void> {
+  if (items.length === 0) return;
 
   const docId = getGuidelinesDocId();
   if (!docId) {
@@ -49,7 +47,7 @@ export async function appendGuidelinesToDoc(guidelines: string[]): Promise<void>
   }
 
   const currentContent = (await getGuidelines()) ?? "";
-  const newContent = currentContent + formatAppendedSection(guidelines);
+  const newContent = applyUpdatesToDoc(currentContent, items);
 
   const drive = getDriveClient();
   await drive.files.update({

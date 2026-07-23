@@ -26,7 +26,8 @@ import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
 import { verifyGuideline } from "./guidelineVerification";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
-import { appendGuidelinesToDoc } from "./driveWrite";
+import { planGuidelinePlacements } from "./guidelinePlacement";
+import { applyGuidelineUpdates } from "./driveWrite";
 
 const app = express();
 app.use(express.json({ limit: "15mb" }));
@@ -616,12 +617,15 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
 });
 
 /**
- * Appends the guidelines a human confirmed (after reviewing each one's
- * verification result on the guidelines-review page) to the end of the
- * guidelines .md file, under a dated heading. See src/driveWrite.ts.
+ * Given guidelines a human confirmed (after reviewing each one's
+ * verification result), decides which existing section of the guidelines
+ * doc each belongs under -- or whether it needs a new section -- and flags
+ * any direct contradiction with an existing bullet. Read-only, no write
+ * yet; the page shows this for review before POSTing to
+ * /apply-guideline-updates. See src/guidelinePlacement.ts.
  */
-app.post("/confirm-guidelines", async (req: Request, res: Response) => {
-  const { guidelines } = req.body ?? {};
+app.post("/plan-guideline-updates", async (req: Request, res: Response) => {
+  const { guidelines, language } = req.body ?? {};
 
   if (!Array.isArray(guidelines) || guidelines.length === 0 || guidelines.some((g) => typeof g !== "string")) {
     return res.status(400).json({
@@ -630,7 +634,42 @@ app.post("/confirm-guidelines", async (req: Request, res: Response) => {
   }
 
   try {
-    await appendGuidelinesToDoc(guidelines);
+    const existingContent = (await getGuidelines()) ?? "";
+    const placements = await planGuidelinePlacements(guidelines, existingContent, parseLanguage(language));
+    return res.json({ placements });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * Writes the human-confirmed placement/replacement decisions to the
+ * guidelines .md file. See src/driveWrite.ts.
+ */
+app.post("/apply-guideline-updates", async (req: Request, res: Response) => {
+  const { items } = req.body ?? {};
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      error: "Request body must include a non-empty array 'items'",
+    });
+  }
+  const valid = items.every(
+    (item) =>
+      item &&
+      typeof item.guideline === "string" &&
+      typeof item.section === "string" &&
+      typeof item.isNewSection === "boolean"
+  );
+  if (!valid) {
+    return res.status(400).json({
+      error: "Each item must include string 'guideline', string 'section', and boolean 'isNewSection'",
+    });
+  }
+
+  try {
+    await applyGuidelineUpdates(items);
     return res.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
