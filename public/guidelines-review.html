@@ -25,6 +25,11 @@
     color: #666;
     margin-bottom: 20px;
   }
+  .verify-explainer {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 12px;
+  }
   .card {
     background: white;
     border: 1px solid #e5e5e5;
@@ -178,13 +183,6 @@
     font-style: italic;
     margin: 4px 0;
   }
-  .mockup-image {
-    max-width: 240px;
-    display: block;
-    border: 1px solid #e5e5e5;
-    border-radius: 4px;
-    margin-top: 6px;
-  }
   #add-button-row {
     display: none;
     margin-bottom: 16px;
@@ -270,6 +268,12 @@
   <div id="status"></div>
 
   <div id="candidates-card" class="card" style="display: none">
+    <div class="verify-explainer">
+      Each candidate is tested by generating a small synthetic scene that violates it, then
+      running it through the same automated review used on real Figma frames -- this shows
+      whether an automated review would actually catch a violation, not just whether the rule
+      reads well.
+    </div>
     <div id="candidates"></div>
   </div>
 
@@ -436,9 +440,6 @@
     let detailsHtml = `<div class="verify-reasoning">${escapeHtml(result.reasoning || "")}</div>`;
     if (result.matchingComment) {
       detailsHtml += `<div class="verify-comment">"${escapeHtml(result.matchingComment)}"</div>`;
-    }
-    if (result.mockupImageBase64) {
-      detailsHtml += `<img class="mockup-image" src="data:image/png;base64,${result.mockupImageBase64}" alt="Test mockup" />`;
     }
     detailsEl.innerHTML = detailsHtml;
     updateAddButtonVisibility();

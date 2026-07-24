@@ -336,8 +336,6 @@ export interface GuidelineVerificationResult {
   passed: boolean | null;
   reasoning: string;
   matchingComment?: string;
-  /** Base64 PNG of the synthetic mockup used for the test. Absent when passed is null. */
-  mockupImageBase64?: string;
   annotations: NodeBoundAnnotation[];
 }
 
@@ -386,7 +384,6 @@ export async function verifyGuideline(
     passed: judgment.passed,
     reasoning: judgment.reasoning,
     matchingComment: judgment.matchingComment,
-    mockupImageBase64,
     annotations,
   };
 }
