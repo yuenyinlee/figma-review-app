@@ -1,4 +1,10 @@
-import { GuidelinePlacement } from "./guidelinePlacement";
+export interface GuidelineApplyItem {
+  guideline: string;
+  section: string;
+  isNewSection: boolean;
+  /** Set only when the human confirmed this should replace an existing rule instead of being added new. */
+  replaceText?: string;
+}
 
 interface DocSection {
   heading: string;
@@ -105,15 +111,15 @@ function replaceBulletText(doc: ParsedDoc, oldText: string, newGuideline: string
 /**
  * Applies a batch of guideline additions/replacements to the guidelines
  * doc's raw text and returns the updated content. Each item either lands
- * as a new bullet under its target section, or -- if it was confirmed to
- * replace a contradicting rule -- overwrites that rule's exact text
- * in place.
+ * as a new bullet under its target section, or -- if the human chose to
+ * replace one of the related existing rules -- overwrites that rule's
+ * exact text in place.
  */
-export function applyUpdatesToDoc(content: string, items: GuidelinePlacement[]): string {
+export function applyUpdatesToDoc(content: string, items: GuidelineApplyItem[]): string {
   const doc = parseGuidelinesDoc(content);
   for (const item of items) {
-    if (item.conflictsWithText) {
-      replaceBulletText(doc, item.conflictsWithText, item.guideline);
+    if (item.replaceText) {
+      replaceBulletText(doc, item.replaceText, item.guideline);
     } else {
       insertBulletIntoSection(doc, item.section, item.guideline);
     }

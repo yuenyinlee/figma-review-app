@@ -46,39 +46,41 @@ interface ExtractionResponse {
 }
 
 /**
- * Reads a meeting's minutes text and pulls out concrete, actionable design
- * decisions worth adding to the team's guidelines doc -- filtered against
- * what's already documented so it doesn't propose duplicates. Returns an
- * empty list if the notes don't contain any genuinely new, testable
- * decision (no minimum, never pad).
+ * Reads a meeting's minutes text and pulls out every concrete, actionable
+ * design decision worth considering for the team's guidelines doc.
+ * Deliberately does NOT filter against what's already documented -- that
+ * judgment (is this a duplicate, an update, or a genuine conflict?) is left
+ * to a human, surfaced later by src/guidelinePlacement.ts. Returns an empty
+ * list if the notes don't contain any genuine decision (no minimum, never
+ * pad).
  */
 export async function extractCandidateGuidelines(
   minutesText: string,
-  existingGuidelines?: string,
   language?: ReviewLanguage
 ): Promise<CandidateGuideline[]> {
   const anthropic = getClient();
 
-  const existingSection = existingGuidelines
-    ? `Here are the guidelines already documented -- do not propose anything already adequately ` +
-      `covered by these, only genuinely new additions:\n"""\n${existingGuidelines}\n"""\n\n`
-    : "";
-
   const languageName = LANGUAGE_NAMES[language ?? "en"];
 
   const prompt =
-    "You are helping a design team turn meeting notes into additions to their design " +
-    "guidelines doc, which an automated review tool later checks Figma frames against.\n\n" +
-    existingSection +
+    "You are helping a design team turn meeting notes into candidate additions to their " +
+    "design guidelines doc, which an automated review tool later checks Figma frames " +
+    "against.\n\n" +
     `Here are the meeting minutes to review:\n"""\n${minutesText}\n"""\n\n` +
-    "Go through the notes and identify any concrete, actionable design decisions the team " +
-    "actually agreed on -- rules about component usage, layout, color, spacing, accessibility, " +
-    "copy, or interaction patterns that a reviewer (human or automated) could check a design " +
-    "against. Phrase each as a single clear guideline sentence, not a summary of the discussion. " +
-    "Skip vague chatter, undecided debates, action items unrelated to design rules, and anything " +
-    "already covered by the existing guidelines above. If the notes don't contain any genuinely " +
-    "new, concrete decision, return an empty list -- do not invent or pad with restatements of " +
-    "existing guidelines or generic best practices that weren't actually discussed.\n\n" +
+    "Go through the notes and identify every concrete, actionable design decision the team " +
+    "discussed or agreed on -- rules about component usage, layout, color, spacing, " +
+    "accessibility, copy, or interaction patterns that a reviewer (human or automated) could " +
+    "check a design against. Phrase each as a single clear guideline sentence, not a summary " +
+    "of the discussion.\n\n" +
+    "Extract every distinct mention as its own candidate, even if it looks similar to, " +
+    "duplicates, or contradicts something else in the notes or something the team may already " +
+    "have documented elsewhere -- do NOT skip, merge, or silently reconcile these yourself. If " +
+    "the same topic is mentioned more than once with different specifics (e.g. different " +
+    "numbers or rules), extract each distinct version as its own separate candidate rather " +
+    "than picking one -- a human will review the full list and decide which should actually " +
+    "apply. Only skip vague chatter, undecided debates, and action items unrelated to design " +
+    "rules. If the notes don't contain any concrete decision at all, return an empty list -- " +
+    "don't invent one.\n\n" +
     `Write the guideline and rationale fields entirely in ${languageName}.`;
 
   const response = await anthropic.messages.create(

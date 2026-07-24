@@ -1,18 +1,21 @@
 import { getClient, MODEL, ReviewLanguage, LANGUAGE_NAMES } from "./claude";
 
+export interface RelatedRule {
+  /** Exact existing bullet text, verbatim (without its leading "- "), so it can be located. */
+  text: string;
+  relationship: "similar" | "contradictory";
+  /** Brief note on how it relates -- shown to the human deciding whether to replace it. */
+  explanation: string;
+}
+
 export interface GuidelinePlacement {
   guideline: string;
   /** Exact target section heading text (without the ## marker). */
   section: string;
   /** True if `section` isn't among the doc's existing headings. */
   isNewSection: boolean;
-  /**
-   * If this guideline directly contradicts an existing bullet elsewhere in
-   * the doc, that bullet's exact text (verbatim, without its leading "- ").
-   * Absent when there's no conflict.
-   */
-  conflictsWithText?: string;
-  conflictExplanation?: string;
+  /** Existing bullets anywhere in the doc that overlap with or contradict this guideline. */
+  relatedRules: RelatedRule[];
 }
 
 const PLACEMENT_SCHEMA = {
@@ -38,21 +41,39 @@ const PLACEMENT_SCHEMA = {
             type: "boolean",
             description: "True if `section` is a new name, not one of the document's existing headings.",
           },
-          conflictsWithText: {
-            type: "string",
+          relatedRules: {
+            type: "array",
             description:
-              "If this guideline directly contradicts an existing bullet point anywhere in the " +
-              "document (requires the opposite of what that bullet already states), the exact " +
-              "text of that existing bullet, verbatim, without its leading '- '. Omit entirely " +
-              "if there's no genuine contradiction -- being merely related, more specific, or " +
-              "additive doesn't count as a conflict.",
-          },
-          conflictExplanation: {
-            type: "string",
-            description: "If conflictsWithText is set, one brief sentence explaining the contradiction.",
+              "Every existing bullet point anywhere in the document that meaningfully overlaps " +
+              "with or contradicts this guideline. Empty if there's nothing related.",
+            items: {
+              type: "object",
+              properties: {
+                text: {
+                  type: "string",
+                  description:
+                    "The exact text of the existing bullet, verbatim, without its leading '- ' " +
+                    "(character for character, so it can be located in the document).",
+                },
+                relationship: {
+                  type: "string",
+                  enum: ["similar", "contradictory"],
+                  description:
+                    "'contradictory' if this existing rule requires the opposite of the new " +
+                    "guideline; 'similar' if it overlaps, duplicates, or is otherwise closely " +
+                    "related without directly conflicting.",
+                },
+                explanation: {
+                  type: "string",
+                  description: "One brief sentence on how the two relate.",
+                },
+              },
+              required: ["text", "relationship", "explanation"],
+              additionalProperties: false,
+            },
           },
         },
-        required: ["guideline", "section", "isNewSection"],
+        required: ["guideline", "section", "isNewSection", "relatedRules"],
         additionalProperties: false,
       },
     },
@@ -64,9 +85,11 @@ const PLACEMENT_SCHEMA = {
 /**
  * Decides, for each newly-confirmed guideline, which existing section of
  * the guidelines doc it belongs under (or whether it needs a new section),
- * and whether it directly contradicts an existing bullet elsewhere in the
- * doc -- surfaced so a human can decide whether to replace the old rule
- * before anything gets written.
+ * and lists every existing bullet anywhere in the doc that's similar to or
+ * contradicts it -- surfaced so a human can decide whether to add the
+ * guideline alongside those, or replace one of them, before anything gets
+ * written. Purely a text comparison against the current doc -- no
+ * synthetic mockup or image involved.
  */
 export async function planGuidelinePlacements(
   guidelines: string[],
@@ -86,19 +109,20 @@ export async function planGuidelinePlacements(
     "1. Decide which EXISTING section heading (exact text) it best belongs under -- reuse an " +
     "existing section whenever it reasonably fits, and only propose a new section name when " +
     "none of the existing ones do.\n" +
-    "2. Check whether it directly contradicts any existing bullet point ANYWHERE in the " +
-    "document (not just within the same section) -- i.e. it requires the opposite of what an " +
-    "existing bullet already states. If so, quote that bullet's exact text and briefly explain " +
-    "the contradiction. Only flag genuine contradictions; a guideline that's merely related, " +
-    "more specific, or additive is not a conflict.\n\n" +
-    `Write the section and conflictExplanation fields entirely in ${languageName}. Echo the ` +
-    "guideline field back exactly as given, and conflictsWithText exactly as it appears in the " +
-    "document (character for character, so it can be located and replaced).";
+    "2. List EVERY existing bullet point anywhere in the document (not just within the same " +
+    "section) that meaningfully relates to it -- whether that's a direct contradiction " +
+    "(requires the opposite of what the new guideline says) or just significant overlap/" +
+    "duplication. Don't silently decide for the user which one should win -- surface all of " +
+    "them so a human can choose. Only include genuinely relevant bullets, not anything vaguely " +
+    "in the same topic area.\n\n" +
+    `Write the section, relationship, and explanation fields entirely in ${languageName}. Echo ` +
+    "the guideline field back exactly as given, and each relatedRules text exactly as it " +
+    "appears in the document (character for character, so it can be located and replaced).";
 
   const response = await anthropic.messages.create(
     {
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 2500,
       messages: [{ role: "user", content: prompt }],
       output_config: {
         format: { type: "json_schema", schema: PLACEMENT_SCHEMA },

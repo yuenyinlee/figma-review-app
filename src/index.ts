@@ -24,7 +24,6 @@ import {
 } from "./claude";
 import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
-import { verifyGuideline } from "./guidelineVerification";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
 import { planGuidelinePlacements } from "./guidelinePlacement";
 import { applyGuidelineUpdates } from "./driveWrite";
@@ -550,36 +549,11 @@ app.post("/flow-review", async (req: Request, res: Response) => {
 });
 
 /**
- * Checks whether a candidate guideline (not yet saved to
- * design-guidelines.md) would actually be enforced by the review pipeline,
- * before committing it: synthesizes a small test mockup that should violate
- * it, runs the real review against it, and reports whether the violation
- * was actually caught. See src/guidelineVerification.ts.
- */
-app.post("/verify-guideline", async (req: Request, res: Response) => {
-  const { candidateGuideline, language } = req.body ?? {};
-
-  if (typeof candidateGuideline !== "string" || candidateGuideline.trim().length === 0) {
-    return res.status(400).json({
-      error: "Request body must include a non-empty string field 'candidateGuideline'",
-    });
-  }
-
-  try {
-    const result = await verifyGuideline(candidateGuideline.trim(), parseLanguage(language));
-    return res.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ error: message });
-  }
-});
-
-/**
  * Standalone page for turning meeting minutes into candidate guidelines --
  * not tied to any specific Figma file, so it lives here instead of in the
  * plugin. The page itself has no sensitive data (see the access-code
  * exemption above); its own JS prompts for/stores the code before calling
- * /extract-guidelines or /verify-guideline.
+ * /extract-guidelines or /plan-guideline-updates.
  */
 app.get("/guidelines-review", (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, "..", "public", "guidelines-review.html"));
@@ -587,10 +561,11 @@ app.get("/guidelines-review", (_req: Request, res: Response) => {
 
 /**
  * Reads a meeting minutes Google Doc and pulls out candidate guidelines --
- * the first step of the semi-automatic guidelines-update flow. Each
- * candidate still needs to be checked via POST /verify-guideline (the page
- * does this itself, one call per candidate) before a human decides whether
- * to actually paste it into the guidelines doc.
+ * the first step of the semi-automatic guidelines-update flow. Candidates
+ * aren't tested against a synthetic mockup (that cost more API calls than
+ * it was worth); instead /plan-guideline-updates checks each one against
+ * the existing guidelines text directly, and real enforcement is proven
+ * out the next time an actual Figma review runs against the updated file.
  */
 app.post("/extract-guidelines", async (req: Request, res: Response) => {
   const { minutesDocUrl, language } = req.body ?? {};
@@ -607,8 +582,7 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "The meeting minutes document appears to be empty" });
     }
 
-    const existingGuidelines = await getGuidelines();
-    const candidates = await extractCandidateGuidelines(minutesText, existingGuidelines, parseLanguage(language));
+    const candidates = await extractCandidateGuidelines(minutesText, parseLanguage(language));
     return res.json({ candidates });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -617,12 +591,13 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
 });
 
 /**
- * Given guidelines a human confirmed (after reviewing each one's
- * verification result), decides which existing section of the guidelines
- * doc each belongs under -- or whether it needs a new section -- and flags
- * any direct contradiction with an existing bullet. Read-only, no write
- * yet; the page shows this for review before POSTing to
- * /apply-guideline-updates. See src/guidelinePlacement.ts.
+ * Given guidelines a human selected from the extracted candidates, decides
+ * which existing section of the guidelines doc each belongs under -- or
+ * whether it needs a new section -- and lists every existing rule that's
+ * similar to or contradicts it, so the human can decide whether to add it
+ * alongside those or replace one of them. Read-only, no write yet; the
+ * page shows this for review before POSTing to /apply-guideline-updates.
+ * See src/guidelinePlacement.ts.
  */
 app.post("/plan-guideline-updates", async (req: Request, res: Response) => {
   const { guidelines, language } = req.body ?? {};

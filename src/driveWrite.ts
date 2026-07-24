@@ -1,7 +1,6 @@
 import { google } from "googleapis";
 import { getGuidelines, getGuidelinesDocId } from "./guidelines";
-import { applyUpdatesToDoc } from "./guidelinesDocEditor";
-import { GuidelinePlacement } from "./guidelinePlacement";
+import { applyUpdatesToDoc, GuidelineApplyItem } from "./guidelinesDocEditor";
 
 /**
  * GOOGLE_SERVICE_ACCOUNT_KEY holds the service account's JSON key,
@@ -33,12 +32,12 @@ function getDriveClient() {
 /**
  * Applies human-confirmed guideline placements/replacements to the
  * guidelines .md file: each item lands as a new bullet under its target
- * section (creating the section if needed), or -- if confirmed as
- * replacing a contradicting rule -- overwrites that rule's exact text in
- * place. Re-fetches the current content first so this always builds on
- * the latest version rather than a stale copy.
+ * section (creating the section if needed), or -- if the human chose to
+ * replace one of the related existing rules -- overwrites that rule's
+ * exact text in place. Re-fetches the current content first so this
+ * always builds on the latest version rather than a stale copy.
  */
-export async function applyGuidelineUpdates(items: GuidelinePlacement[]): Promise<void> {
+export async function applyGuidelineUpdates(items: GuidelineApplyItem[]): Promise<void> {
   if (items.length === 0) return;
 
   const docId = getGuidelinesDocId();

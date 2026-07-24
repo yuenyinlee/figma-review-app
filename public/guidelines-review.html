@@ -25,7 +25,7 @@
     color: #666;
     margin-bottom: 20px;
   }
-  .verify-explainer {
+  .candidates-explainer {
     font-size: 12px;
     color: #666;
     margin-bottom: 12px;
@@ -141,47 +141,12 @@
     margin-bottom: 8px;
     cursor: pointer;
   }
-  .verify-status {
-    display: inline-block;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 4px;
-    margin-bottom: 6px;
-  }
-  .verify-status.pending {
-    background: #eee;
-    color: #666;
-  }
-  .verify-status.pass {
-    background: #d3f9d8;
-    color: #1b7a2b;
-  }
-  .verify-status.fail {
-    background: #ffd8d8;
-    color: #c22b2b;
-  }
-  .verify-status.neutral {
-    background: #eee;
-    color: #666;
-  }
   .added-label {
     display: inline-block;
     font-size: 12px;
     font-weight: 600;
     color: #1b7a2b;
     margin-bottom: 8px;
-  }
-  .verify-reasoning {
-    font-size: 12px;
-    color: #444;
-    margin: 4px 0;
-  }
-  .verify-comment {
-    font-size: 12px;
-    color: #444;
-    font-style: italic;
-    margin: 4px 0;
   }
   #add-button-row {
     display: none;
@@ -209,29 +174,50 @@
     font-size: 12px;
     color: #444;
   }
-  .conflict-warning {
-    font-size: 12px;
-    color: #8a4b00;
-    background: #fff4e0;
-    border: 1px solid #ffdca0;
+  .related-rule {
+    background: #f7f7f7;
+    border: 1px solid #e5e5e5;
     border-radius: 6px;
     padding: 8px;
-    margin-top: 6px;
-  }
-  .conflict-actions {
-    display: flex;
-    gap: 8px;
     margin-top: 8px;
   }
-  .conflict-choice {
-    flex: 1;
+  .relation-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+  }
+  .relation-badge.similar {
+    background: #eee;
+    color: #666;
+  }
+  .relation-badge.contradictory {
+    background: #fff4e0;
+    color: #8a4b00;
+  }
+  .related-rule-text {
+    font-size: 12px;
+    color: #444;
+    font-style: italic;
+    margin: 4px 0;
+  }
+  .related-rule-explanation {
+    font-size: 12px;
+    color: #444;
+    margin-bottom: 6px;
+  }
+  .replace-toggle {
     padding: 6px 8px;
     font-size: 12px;
     background: transparent;
     color: #666;
     border: 1px solid #ccc;
   }
-  .conflict-choice.active {
+  .replace-toggle.active {
     background: #18a0fb;
     color: white;
     border-color: #18a0fb;
@@ -242,8 +228,8 @@
 <div class="container">
   <h1>Guidelines from Meeting Minutes</h1>
   <div class="subtitle">
-    Paste a link to a meeting minutes Google Doc to pull out candidate design guidelines,
-    verify each against the real review pipeline, and pick which ones to add.
+    Paste a link to a meeting minutes Google Doc to pull out candidate design guidelines, see
+    how each relates to your existing rules, and pick which ones to add.
   </div>
 
   <div id="access-code-view" class="card" style="display: none">
@@ -268,11 +254,9 @@
   <div id="status"></div>
 
   <div id="candidates-card" class="card" style="display: none">
-    <div class="verify-explainer">
-      Each candidate is tested by generating a small synthetic scene that violates it, then
-      running it through the same automated review used on real Figma frames -- this shows
-      whether an automated review would actually catch a violation, not just whether the rule
-      reads well.
+    <div class="candidates-explainer">
+      Check the candidates you'd like to add, then click Add to Guidelines Doc to see where
+      each would go and whether it overlaps with an existing rule.
     </div>
     <div id="candidates"></div>
   </div>
@@ -389,6 +373,12 @@
     return data;
   }
 
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value;
+    return div.innerHTML;
+  }
+
   function renderCandidates(candidates) {
     candidatesEl.innerHTML = "";
     candidatesCard.style.display = "block";
@@ -396,10 +386,8 @@
       const div = document.createElement("div");
       div.className = "candidate";
       div.innerHTML = `
-        <span class="verify-status pending" id="verify-status-${i}">Verifying...</span>
         <span class="guideline-text">${escapeHtml(candidate.guideline)}</span>
         <span class="rationale">${escapeHtml(candidate.rationale)}</span>
-        <div id="verify-details-${i}"></div>
         <label class="include">
           <input type="checkbox" class="include-checkbox" data-index="${i}" />
           Include in guidelines
@@ -414,58 +402,6 @@
     });
   }
 
-  function escapeHtml(value) {
-    const div = document.createElement("div");
-    div.textContent = value;
-    return div.innerHTML;
-  }
-
-  function renderVerificationResult(i, result) {
-    const statusEl = document.getElementById(`verify-status-${i}`);
-    const detailsEl = document.getElementById(`verify-details-${i}`);
-    const checkbox = document.querySelector(`.include-checkbox[data-index="${i}"]`);
-
-    if (result.passed === true) {
-      statusEl.textContent = "Verified -- caught by the review pipeline";
-      statusEl.className = "verify-status pass";
-      checkbox.checked = true;
-    } else if (result.passed === false) {
-      statusEl.textContent = "Not caught -- reconsider before adding";
-      statusEl.className = "verify-status fail";
-    } else {
-      statusEl.textContent = "Not testable from a static frame";
-      statusEl.className = "verify-status neutral";
-    }
-
-    let detailsHtml = `<div class="verify-reasoning">${escapeHtml(result.reasoning || "")}</div>`;
-    if (result.matchingComment) {
-      detailsHtml += `<div class="verify-comment">"${escapeHtml(result.matchingComment)}"</div>`;
-    }
-    detailsEl.innerHTML = detailsHtml;
-    updateAddButtonVisibility();
-  }
-
-  async function verifyCandidate(i, candidate) {
-    try {
-      const result = await apiFetch("/verify-guideline", {
-        method: "POST",
-        body: JSON.stringify({ candidateGuideline: candidate.guideline, language: getStoredLanguage() }),
-      });
-      renderVerificationResult(i, result);
-    } catch (err) {
-      if (err.handled) throw err;
-      const statusEl = document.getElementById(`verify-status-${i}`);
-      statusEl.textContent = `Verification failed: ${err.message}`;
-      statusEl.className = "verify-status fail";
-    }
-  }
-
-  async function verifyAllSequentially(candidates) {
-    for (let i = 0; i < candidates.length; i++) {
-      await verifyCandidate(i, candidates[i]);
-    }
-  }
-
   function updateAddButtonVisibility() {
     const checked = document.querySelectorAll(".include-checkbox:checked");
     addButtonRow.style.display = checked.length > 0 ? "block" : "none";
@@ -474,7 +410,7 @@
   let currentCandidates = [];
   let currentPlacements = [];
   let currentPlacementIndices = [];
-  let conflictDecisions = {};
+  let replaceDecisions = {};
 
   extractButton.addEventListener("click", async () => {
     const url = minutesUrlInput.value.trim();
@@ -496,14 +432,12 @@
       currentCandidates = candidates;
 
       if (candidates.length === 0) {
-        setStatus("No new candidate guidelines found in these minutes.");
+        setStatus("No candidate guidelines found in these minutes.");
         return;
       }
 
-      setStatus(`Found ${candidates.length} candidate(s) -- verifying each against the review pipeline...`);
+      setStatus(`Found ${candidates.length} candidate(s) -- check the ones you'd like to add.`);
       renderCandidates(candidates);
-      await verifyAllSequentially(candidates);
-      setStatus(`Done -- verified ${candidates.length} candidate(s).`);
     } catch (err) {
       if (!err.handled) {
         setStatus(err.message || String(err), true);
@@ -521,7 +455,7 @@
     const guidelines = indices.map((i) => currentCandidates[i].guideline);
 
     planButton.disabled = true;
-    setStatus("Figuring out where each guideline belongs, and checking for conflicts...");
+    setStatus("Figuring out where each guideline belongs, and checking for related rules...");
 
     try {
       const data = await apiFetch("/plan-guideline-updates", {
@@ -543,42 +477,47 @@
 
   function renderPlacements(placements) {
     placementsEl.innerHTML = "";
-    conflictDecisions = {};
+    replaceDecisions = {};
 
     placements.forEach((p, i) => {
       const div = document.createElement("div");
       div.className = "placement";
 
       let html = `<div class="guideline-text">${escapeHtml(p.guideline)}</div>`;
-      if (p.conflictsWithText) {
-        conflictDecisions[i] = false;
+      html += `<div class="placement-target">Will be added under <strong>${escapeHtml(p.section)}</strong>${
+        p.isNewSection ? " (new section)" : ""
+      }</div>`;
+
+      (p.relatedRules || []).forEach((rule, ruleIndex) => {
+        const isContradictory = rule.relationship === "contradictory";
         html += `
-          <div class="conflict-warning">
-            Conflicts with existing rule: "${escapeHtml(p.conflictsWithText)}"<br />
-            ${escapeHtml(p.conflictExplanation || "")}
-          </div>
-          <div class="conflict-actions">
-            <button type="button" class="conflict-choice" data-index="${i}" data-choice="replace">Replace existing rule</button>
-            <button type="button" class="conflict-choice active" data-index="${i}" data-choice="skip">Skip this guideline</button>
+          <div class="related-rule">
+            <span class="relation-badge ${isContradictory ? "contradictory" : "similar"}">${
+              isContradictory ? "Contradicts" : "Similar"
+            }</span>
+            <div class="related-rule-text">"${escapeHtml(rule.text)}"</div>
+            <div class="related-rule-explanation">${escapeHtml(rule.explanation)}</div>
+            <button type="button" class="replace-toggle" data-index="${i}" data-rule="${ruleIndex}">Replace this rule instead of adding new</button>
           </div>
         `;
-      } else {
-        html += `<div class="placement-target">Will be added under <strong>${escapeHtml(p.section)}</strong>${
-          p.isNewSection ? " (new section)" : ""
-        }</div>`;
-      }
+      });
 
       div.innerHTML = html;
       placementsEl.appendChild(div);
     });
 
-    placementsEl.querySelectorAll(".conflict-choice").forEach((btn) => {
+    placementsEl.querySelectorAll(".replace-toggle").forEach((btn) => {
       btn.addEventListener("click", () => {
         const i = Number(btn.dataset.index);
-        conflictDecisions[i] = btn.dataset.choice === "replace";
-        placementsEl.querySelectorAll(`.conflict-choice[data-index="${i}"]`).forEach((b) => {
-          b.classList.toggle("active", b === btn);
-        });
+        const ruleIndex = Number(btn.dataset.rule);
+        const wasActive = btn.classList.contains("active");
+        placementsEl.querySelectorAll(`.replace-toggle[data-index="${i}"]`).forEach((b) => b.classList.remove("active"));
+        if (wasActive) {
+          delete replaceDecisions[i];
+        } else {
+          btn.classList.add("active");
+          replaceDecisions[i] = ruleIndex;
+        }
       });
     });
 
@@ -590,20 +529,19 @@
     const appliedCandidateIndices = [];
 
     currentPlacements.forEach((p, i) => {
-      if (p.conflictsWithText && !conflictDecisions[i]) return;
+      const chosenRuleIndex = replaceDecisions[i];
+      const replaceText =
+        chosenRuleIndex !== undefined && p.relatedRules && p.relatedRules[chosenRuleIndex]
+          ? p.relatedRules[chosenRuleIndex].text
+          : undefined;
       items.push({
         guideline: p.guideline,
         section: p.section,
         isNewSection: p.isNewSection,
-        conflictsWithText: p.conflictsWithText && conflictDecisions[i] ? p.conflictsWithText : undefined,
+        replaceText,
       });
       appliedCandidateIndices.push(currentPlacementIndices[i]);
     });
-
-    if (items.length === 0) {
-      setStatus("Nothing to update -- resolve or skip the conflicts above first.", true);
-      return;
-    }
 
     confirmButton.disabled = true;
     setStatus("Updating the guidelines doc...");
