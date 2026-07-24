@@ -18,10 +18,12 @@ const EXTRACTION_SCHEMA = {
           guideline: {
             type: "string",
             description:
-              "A single, clear, actionable design-guideline sentence -- phrased as a rule " +
-              "a reviewer could check a frame against, matching the tone of the existing " +
-              "guidelines doc (e.g. 'Destructive actions must use the danger button variant, " +
-              "never the primary variant.').",
+              "A single, clear, actionable design-guideline sentence, ALWAYS in English " +
+              "regardless of what language the meeting notes are in -- this gets written " +
+              "directly into the team's guidelines file, which is English-only. Phrase it as " +
+              "a rule a reviewer could check a frame against, matching the tone of the " +
+              "existing guidelines doc (e.g. 'Destructive actions must use the danger button " +
+              "variant, never the primary variant.').",
           },
           rationale: {
             type: "string",
@@ -81,7 +83,9 @@ export async function extractCandidateGuidelines(
     "apply. Only skip vague chatter, undecided debates, and action items unrelated to design " +
     "rules. If the notes don't contain any concrete decision at all, return an empty list -- " +
     "don't invent one.\n\n" +
-    `Write the guideline and rationale fields entirely in ${languageName}.`;
+    "Write the guideline field in English, always -- it gets saved directly into the " +
+    `guidelines file. Write the rationale field entirely in ${languageName}; that field is ` +
+    "just for the human reviewing this list, never saved anywhere.";
 
   const response = await anthropic.messages.create(
     {

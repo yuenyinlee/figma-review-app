@@ -33,9 +33,10 @@ const PLACEMENT_SCHEMA = {
           section: {
             type: "string",
             description:
-              "The existing section heading (exact text, without the ## marker) this guideline " +
-              "best belongs under. Only propose a new section name if none of the existing " +
-              "sections genuinely fit.",
+              "The existing section heading this guideline best belongs under -- copy its exact " +
+              "text verbatim (without the ## marker), UNTRANSLATED, since it must match the " +
+              "document's actual heading to be found. Only propose a new section name (in " +
+              "English) if none of the existing sections genuinely fit.",
           },
           isNewSection: {
             type: "boolean",
@@ -115,9 +116,12 @@ export async function planGuidelinePlacements(
     "duplication. Don't silently decide for the user which one should win -- surface all of " +
     "them so a human can choose. Only include genuinely relevant bullets, not anything vaguely " +
     "in the same topic area.\n\n" +
-    `Write the section, relationship, and explanation fields entirely in ${languageName}. Echo ` +
-    "the guideline field back exactly as given, and each relatedRules text exactly as it " +
-    "appears in the document (character for character, so it can be located and replaced).";
+    `Write only the explanation field in ${languageName} -- that's just commentary for the ` +
+    "human reviewing this. Everything else must stay exactly as it appears in the source " +
+    "material, untranslated: echo the guideline field back exactly as given (English), copy " +
+    "the section field verbatim if reusing an existing heading, and copy each relatedRules " +
+    "text exactly as it appears in the document (character for character, so it can be " +
+    "located and replaced).";
 
   const response = await anthropic.messages.create(
     {
