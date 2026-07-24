@@ -210,17 +210,15 @@
     color: #444;
     margin-bottom: 6px;
   }
-  .replace-toggle {
-    padding: 6px 8px;
-    font-size: 12px;
-    background: transparent;
-    color: #666;
-    border: 1px solid #ccc;
+  .decision-control {
+    margin-top: 8px;
+    max-width: 220px;
   }
-  .replace-toggle.active {
-    background: #18a0fb;
-    color: white;
-    border-color: #18a0fb;
+  #back-to-candidates-link {
+    display: block;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #666;
   }
 </style>
 </head>
@@ -266,9 +264,10 @@
   </div>
 
   <div id="placement-section" class="card">
-    <strong>Review placement before updating the doc:</strong>
+    <strong>Review each candidate before updating the doc:</strong>
     <div id="placements"></div>
-    <button id="confirm-button">Confirm and Update Doc</button>
+    <button id="confirm-button">Confirm</button>
+    <a href="#" id="back-to-candidates-link">← Back to candidates</a>
   </div>
 </div>
 
@@ -293,6 +292,7 @@
   const placementSection = document.getElementById("placement-section");
   const placementsEl = document.getElementById("placements");
   const confirmButton = document.getElementById("confirm-button");
+  const backToCandidatesLink = document.getElementById("back-to-candidates-link");
 
   function setStatus(text, isError) {
     statusEl.textContent = text || "";
@@ -484,64 +484,87 @@
       div.className = "placement";
 
       let html = `<div class="guideline-text">${escapeHtml(p.guideline)}</div>`;
-      html += `<div class="placement-target">Will be added under <strong>${escapeHtml(p.section)}</strong>${
-        p.isNewSection ? " (new section)" : ""
-      }</div>`;
+      const relatedRules = p.relatedRules || [];
 
-      (p.relatedRules || []).forEach((rule, ruleIndex) => {
-        const isContradictory = rule.relationship === "contradictory";
+      if (relatedRules.length === 0) {
+        html += `<div class="placement-target">Will be added under <strong>${escapeHtml(p.section)}</strong>${
+          p.isNewSection ? " (new section)" : ""
+        }</div>`;
+      } else {
+        relatedRules.forEach((rule) => {
+          const isContradictory = rule.relationship === "contradictory";
+          html += `
+            <div class="related-rule">
+              <span class="relation-badge ${isContradictory ? "contradictory" : "similar"}">${
+                isContradictory ? "Contradicts" : "Repeated"
+              }</span>
+              <div class="related-rule-text">"${escapeHtml(rule.text)}"</div>
+              <div class="related-rule-explanation">${escapeHtml(rule.explanation)}</div>
+            </div>
+          `;
+        });
+        // Replacing targets the first related rule -- multiple simultaneous
+        // conflicts for one candidate is rare enough not to need its own UI.
         html += `
-          <div class="related-rule">
-            <span class="relation-badge ${isContradictory ? "contradictory" : "similar"}">${
-              isContradictory ? "Contradicts" : "Similar"
-            }</span>
-            <div class="related-rule-text">"${escapeHtml(rule.text)}"</div>
-            <div class="related-rule-explanation">${escapeHtml(rule.explanation)}</div>
-            <button type="button" class="replace-toggle" data-index="${i}" data-rule="${ruleIndex}">Replace this rule instead of adding new</button>
+          <div class="segmented decision-control" data-index="${i}">
+            <button type="button" class="segment" data-choice="replace">Replace</button>
+            <button type="button" class="segment active" data-choice="discard">Discard</button>
           </div>
         `;
-      });
+        replaceDecisions[i] = false;
+      }
 
       div.innerHTML = html;
       placementsEl.appendChild(div);
     });
 
-    placementsEl.querySelectorAll(".replace-toggle").forEach((btn) => {
+    placementsEl.querySelectorAll(".decision-control .segment").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const i = Number(btn.dataset.index);
-        const ruleIndex = Number(btn.dataset.rule);
-        const wasActive = btn.classList.contains("active");
-        placementsEl.querySelectorAll(`.replace-toggle[data-index="${i}"]`).forEach((b) => b.classList.remove("active"));
-        if (wasActive) {
-          delete replaceDecisions[i];
-        } else {
-          btn.classList.add("active");
-          replaceDecisions[i] = ruleIndex;
-        }
+        const control = btn.closest(".decision-control");
+        const i = Number(control.dataset.index);
+        control.querySelectorAll(".segment").forEach((b) => b.classList.toggle("active", b === btn));
+        replaceDecisions[i] = btn.dataset.choice === "replace";
       });
     });
 
+    candidatesCard.style.display = "none";
+    addButtonRow.style.display = "none";
     placementSection.style.display = "block";
   }
+
+  function backToCandidates() {
+    placementSection.style.display = "none";
+    candidatesCard.style.display = "block";
+    updateAddButtonVisibility();
+  }
+
+  backToCandidatesLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    backToCandidates();
+  });
 
   confirmButton.addEventListener("click", async () => {
     const items = [];
     const appliedCandidateIndices = [];
 
     currentPlacements.forEach((p, i) => {
-      const chosenRuleIndex = replaceDecisions[i];
-      const replaceText =
-        chosenRuleIndex !== undefined && p.relatedRules && p.relatedRules[chosenRuleIndex]
-          ? p.relatedRules[chosenRuleIndex].text
-          : undefined;
+      const hasRelated = p.relatedRules && p.relatedRules.length > 0;
+      if (hasRelated && replaceDecisions[i] === false) {
+        return; // discarded -- don't add this candidate at all
+      }
       items.push({
         guideline: p.guideline,
         section: p.section,
         isNewSection: p.isNewSection,
-        replaceText,
+        replaceText: hasRelated && replaceDecisions[i] === true ? p.relatedRules[0].text : undefined,
       });
       appliedCandidateIndices.push(currentPlacementIndices[i]);
     });
+
+    if (items.length === 0) {
+      setStatus("Nothing to update -- every candidate was discarded.", true);
+      return;
+    }
 
     confirmButton.disabled = true;
     setStatus("Updating the guidelines doc...");
@@ -559,8 +582,7 @@
         const label = document.getElementById(`added-label-${i}`);
         if (label) label.style.display = "inline-block";
       });
-      placementSection.style.display = "none";
-      updateAddButtonVisibility();
+      backToCandidates();
     } catch (err) {
       if (!err.handled) {
         setStatus(err.message || String(err), true);
