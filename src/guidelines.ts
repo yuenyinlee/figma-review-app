@@ -44,7 +44,10 @@ export async function fetchDriveFileText(link: string): Promise<string> {
   }
 
   const contentType = res.headers.get("content-type") ?? "";
-  const content = (await res.text()).trim();
+  // Google Docs' plain-text export uses CRLF line endings -- normalize to
+  // plain \n so line-based parsing (and anything written back later) stays
+  // consistent regardless of source.
+  const content = (await res.text()).replace(/\r\n/g, "\n").trim();
 
   // A small text file/export should come back directly. If we instead get
   // an HTML page, it's either a sharing-permission issue (redirected to a
@@ -73,15 +76,14 @@ export function getGuidelinesDocId(): string | undefined {
 }
 
 /**
- * Reads the team's current design guidelines from a link-shared Drive file
- * (the guidelines .md, uploaded directly rather than a native Google Doc)
- * -- the single source of truth every review (and guideline-verification
- * run) checks a frame against. Most edits happen directly in Drive, but
- * confirmed guidelines from the meeting-minutes review page are appended
- * here too (see src/driveWrite.ts). We fetch the latest content on every
- * call, so any edit takes effect on the very next review with no redeploy
- * needed. Returns undefined if no file is configured, or it's empty --
- * this feature is optional.
+ * Reads the team's current design guidelines from a link-shared native
+ * Google Doc -- the single source of truth every review (and the
+ * meeting-minutes placement check) compares a frame or candidate against.
+ * Most edits happen directly in the doc, but confirmed guidelines from the
+ * meeting-minutes review page are written here too (see src/driveWrite.ts).
+ * We fetch the latest content on every call, so any edit takes effect on
+ * the very next review with no redeploy needed. Returns undefined if no
+ * doc is configured, or it's empty -- this feature is optional.
  */
 export async function getGuidelines(): Promise<string | undefined> {
   const raw = process.env.GUIDELINES_DOC_ID;
