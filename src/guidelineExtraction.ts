@@ -5,6 +5,8 @@ export interface CandidateGuideline {
   guideline: string;
   /** Brief note on which part of the discussion this came from, for the human reviewing it. */
   rationale: string;
+  /** Which platform this applies to -- "both" unless the notes specifically scoped it to one. */
+  platform: "web" | "mobile" | "both";
 }
 
 const EXTRACTION_SCHEMA = {
@@ -33,8 +35,17 @@ const EXTRACTION_SCHEMA = {
               "(e.g. 'Discussed while reviewing the checkout flow -- team agreed error states " +
               "must persist until the user acts.').",
           },
+          platform: {
+            type: "string",
+            enum: ["web", "mobile", "both"],
+            description:
+              "'web' or 'mobile' ONLY if the discussion specifically scoped this decision to " +
+              "that platform (e.g. it mentions a mobile app screen, touch targets, iOS/Android, " +
+              "or explicitly says \"on web\"/\"on mobile\"). Otherwise 'both' -- the default, " +
+              "since most guidelines apply everywhere unless the notes say otherwise.",
+          },
         },
-        required: ["guideline", "rationale"],
+        required: ["guideline", "rationale", "platform"],
         additionalProperties: false,
       },
     },
@@ -83,6 +94,9 @@ export async function extractCandidateGuidelines(
     "apply. Only skip vague chatter, undecided debates, and action items unrelated to design " +
     "rules. If the notes don't contain any concrete decision at all, return an empty list -- " +
     "don't invent one.\n\n" +
+    "Also decide each candidate's platform scope: 'both' by default, or 'web'/'mobile' only " +
+    "if the discussion specifically ties it to that platform (e.g. mentions a mobile screen, " +
+    "touch targets, or explicitly says which platform it's about).\n\n" +
     "Write the guideline field in English, always -- it gets saved directly into the " +
     `guidelines file. Write the rationale field entirely in ${languageName}; that field is ` +
     "just for the human reviewing this list, never saved anywhere.";

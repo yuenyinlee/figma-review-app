@@ -122,6 +122,18 @@
     padding-top: 0;
     margin-top: 0;
   }
+  .platform-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    background: #eef2ff;
+    color: #3b4fb0;
+  }
   .candidate .guideline-text {
     font-weight: 600;
     display: block;
@@ -379,6 +391,12 @@
     return div.innerHTML;
   }
 
+  function platformLabel(platform) {
+    if (platform === "web") return "Web only";
+    if (platform === "mobile") return "Mobile only";
+    return "Both";
+  }
+
   function renderCandidates(candidates) {
     candidatesEl.innerHTML = "";
     candidatesCard.style.display = "block";
@@ -386,6 +404,7 @@
       const div = document.createElement("div");
       div.className = "candidate";
       div.innerHTML = `
+        <span class="platform-badge">${platformLabel(candidate.platform)}</span>
         <span class="guideline-text">${escapeHtml(candidate.guideline)}</span>
         <span class="rationale">${escapeHtml(candidate.rationale)}</span>
         <label class="include">
@@ -452,7 +471,10 @@
     if (checked.length === 0) return;
 
     const indices = checked.map((c) => Number(c.dataset.index));
-    const guidelines = indices.map((i) => currentCandidates[i].guideline);
+    const candidatesToPlan = indices.map((i) => ({
+      guideline: currentCandidates[i].guideline,
+      platform: currentCandidates[i].platform,
+    }));
 
     planButton.disabled = true;
     setStatus("Figuring out where each guideline belongs, and checking for related rules...");
@@ -460,7 +482,7 @@
     try {
       const data = await apiFetch("/plan-guideline-updates", {
         method: "POST",
-        body: JSON.stringify({ guidelines, language: getStoredLanguage() }),
+        body: JSON.stringify({ candidates: candidatesToPlan, language: getStoredLanguage() }),
       });
       currentPlacements = data.placements || [];
       currentPlacementIndices = indices;
@@ -483,7 +505,9 @@
       const div = document.createElement("div");
       div.className = "placement";
 
-      let html = `<div class="guideline-text">${escapeHtml(p.guideline)}</div>`;
+      let html =
+        `<span class="platform-badge">${platformLabel(p.platform)}</span>` +
+        `<div class="guideline-text">${escapeHtml(p.guideline)}</div>`;
       const relatedRules = p.relatedRules || [];
 
       if (relatedRules.length === 0) {
@@ -557,6 +581,7 @@
         section: p.section,
         isNewSection: p.isNewSection,
         replaceText: hasRelated && replaceDecisions[i] === true ? p.relatedRules[0].text : undefined,
+        platform: p.platform === "both" ? undefined : p.platform,
       });
       appliedCandidateIndices.push(currentPlacementIndices[i]);
     });

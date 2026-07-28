@@ -160,12 +160,60 @@ async function getStoredLanguage(): Promise<ReviewLanguage> {
   return VALID_LANGUAGES.includes(language as ReviewLanguage) ? (language as ReviewLanguage) : "en";
 }
 
+type ReviewPlatform = "web" | "mobile";
+const VALID_PLATFORMS: ReviewPlatform[] = ["web", "mobile"];
+
+// A rough width cutoff to guess web vs. mobile from the selected frame --
+// not persisted like language, since it should re-suggest fresh whenever
+// the selection changes rather than sticking from a previous frame.
+const MOBILE_WIDTH_THRESHOLD = 600;
+
+function detectPlatformFromWidth(width: number): ReviewPlatform {
+  return width <= MOBILE_WIDTH_THRESHOLD ? "mobile" : "web";
+}
+
+/**
+ * Guesses the platform of the current selection so the UI can suggest it
+ * (still overridable there) -- from the selected frame's own width, or, for
+ * a flow-review section selection, its first frame child's width. Returns
+ * undefined when there's nothing sensible to suggest from (e.g. no
+ * selection, or a node with no width), leaving whatever was last suggested.
+ */
+function detectPlatformForSelection(): ReviewPlatform | undefined {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1) return undefined;
+  const node = selection[0];
+
+  if (node.type === "SECTION") {
+    const firstFrame = node.children.find((c): c is FrameNode => c.type === "FRAME");
+    return firstFrame ? detectPlatformFromWidth(firstFrame.width) : undefined;
+  }
+
+  if ("width" in node) {
+    return detectPlatformFromWidth((node as SceneNode & { width: number }).width);
+  }
+
+  return undefined;
+}
+
+function notifyPlatformSuggestion(): void {
+  const platform = detectPlatformForSelection();
+  if (platform) {
+    figma.ui.postMessage({ type: "platformSuggestion", platform });
+  }
+}
+
+figma.on("selectionchange", notifyPlatformSuggestion);
+
 // Tell the UI right away whether an access code is already stored (so it
 // shows the right view without a visible flash of the wrong one), and the
 // current comment-language preference so the segmented control reflects it.
 Promise.all([getStoredAccessCode(), getStoredLanguage()]).then(([code, language]) => {
   figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code), language });
 });
+
+// Suggest a platform for whatever's already selected when the plugin opens.
+notifyPlatformSuggestion();
 
 /**
  * Collects all visible text found anywhere within a node's subtree (e.g. a
@@ -631,7 +679,7 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function runReview(): Promise<void> {
+async function runReview(platform: ReviewPlatform): Promise<void> {
   const accessCode = await getStoredAccessCode();
   if (!accessCode) {
     figma.ui.postMessage({ type: "needsAccessCode" });
@@ -694,6 +742,7 @@ async function runReview(): Promise<void> {
         nodes,
         existingAnnotations,
         language: await getStoredLanguage(),
+        platform,
       }),
     });
     if (response.status === 401) {
@@ -732,9 +781,12 @@ async function runReview(): Promise<void> {
   figma.ui.postMessage({ type: "done", applied, failedCount });
 }
 
-figma.ui.onmessage = (message: { type: string; code?: string; language?: string }) => {
+figma.ui.onmessage = (message: { type: string; code?: string; language?: string; platform?: string }) => {
   if (message.type === "review") {
-    runReview().catch((err) => {
+    const platform = VALID_PLATFORMS.includes(message.platform as ReviewPlatform)
+      ? (message.platform as ReviewPlatform)
+      : "web";
+    runReview(platform).catch((err) => {
       figma.ui.postMessage({ type: "error", message: `Unexpected error: ${describeError(err)}` });
     });
   } else if (message.type === "reviewFlow") {

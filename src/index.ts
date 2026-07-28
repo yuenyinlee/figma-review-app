@@ -21,6 +21,7 @@ import {
   FlowConnection,
   FlowFrameAnnotation,
   ReviewLanguage,
+  ReviewPlatform,
 } from "./claude";
 import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
@@ -77,11 +78,11 @@ app.use((req: Request, res: Response, next) => {
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 /**
- * Parses DESIGN_SYSTEM_PAGES, a comma-separated list of "Label=nodeId" pairs,
- * e.g. "Components=1:23,Typography=4:56". Returns [] if unset.
+ * Parses a DESIGN_SYSTEM_PAGES-style env var, a comma-separated list of
+ * "Label=nodeId" pairs, e.g. "Components=1:23,Typography=4:56". Returns []
+ * if unset.
  */
-function parseDesignSystemPages(): { label: string; nodeId: string }[] {
-  const raw = process.env.DESIGN_SYSTEM_PAGES;
+function parseDesignSystemPages(raw: string | undefined): { label: string; nodeId: string }[] {
   if (!raw) return [];
   return raw
     .split(",")
@@ -95,13 +96,18 @@ function parseDesignSystemPages(): { label: string; nodeId: string }[] {
 }
 
 /**
- * Fetches every configured design system page as a labeled reference image,
- * in a single batched Figma request. Returns [] if DESIGN_SYSTEM_FILE_KEY or
- * DESIGN_SYSTEM_PAGES isn't configured.
+ * Fetches every configured design system page (for the given platform) as a
+ * labeled reference image, in a single batched Figma request. Web uses
+ * DESIGN_SYSTEM_FILE_KEY/DESIGN_SYSTEM_PAGES, mobile uses
+ * MOBILE_DESIGN_SYSTEM_FILE_KEY/MOBILE_DESIGN_SYSTEM_PAGES. Returns [] if
+ * the relevant pair isn't configured.
  */
-async function fetchDesignSystemReferences(): Promise<LabeledImage[]> {
-  const fileKey = process.env.DESIGN_SYSTEM_FILE_KEY;
-  const pages = parseDesignSystemPages();
+async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<LabeledImage[]> {
+  const fileKey =
+    platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_FILE_KEY : process.env.DESIGN_SYSTEM_FILE_KEY;
+  const pages = parseDesignSystemPages(
+    platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_PAGES : process.env.DESIGN_SYSTEM_PAGES
+  );
   if (!fileKey || pages.length === 0) return [];
 
   const images = await fetchNodeImagesBase64(
@@ -170,9 +176,11 @@ app.post("/review", async (req: Request, res: Response) => {
     console.log(`[review] frame image fetched (${elapsed()})`);
 
     // 2. Optionally fetch reference images of the design system's pages
-    //    (Components, Typography, etc.), if configured in .env
+    //    (Components, Typography, etc.), if configured in .env -- this
+    //    legacy REST endpoint has no platform detection, so it always uses
+    //    the web design system.
     console.log(`[review] fetching design system reference images...`);
-    const designSystemReferences = await fetchDesignSystemReferences();
+    const designSystemReferences = await fetchDesignSystemReferences("web");
     console.log(
       `[review] fetched ${designSystemReferences.length} design system reference image(s) (${elapsed()})`
     );
@@ -278,6 +286,12 @@ function parseLanguage(value: unknown): ReviewLanguage {
   return VALID_LANGUAGES.includes(value as ReviewLanguage) ? (value as ReviewLanguage) : "en";
 }
 
+const VALID_PLATFORMS: ReviewPlatform[] = ["web", "mobile"];
+
+function parsePlatform(value: unknown): ReviewPlatform {
+  return VALID_PLATFORMS.includes(value as ReviewPlatform) ? (value as ReviewPlatform) : "web";
+}
+
 /**
  * Called by the Figma plugin, which runs inside Figma itself. Unlike
  * /review, the plugin already has the rendered frame (via exportAsync) and
@@ -288,8 +302,10 @@ function parseLanguage(value: unknown): ReviewLanguage {
  * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
-  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId, language } = req.body ?? {};
+  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId, language, platform } =
+    req.body ?? {};
   const reviewLanguage = parseLanguage(language);
+  const reviewPlatform = parsePlatform(platform);
 
   if (typeof fileKey !== "string" || typeof nodeId !== "string") {
     return res.status(400).json({
@@ -311,9 +327,10 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    // 1. Optionally fetch reference images of the design system's pages
-    console.log(`[plugin-review] fetching design system reference images...`);
-    const designSystemReferences = await fetchDesignSystemReferences();
+    // 1. Optionally fetch reference images of the design system's pages,
+    //    from the web or mobile file depending on this frame's platform
+    console.log(`[plugin-review] fetching ${reviewPlatform} design system reference images...`);
+    const designSystemReferences = await fetchDesignSystemReferences(reviewPlatform);
     console.log(
       `[plugin-review] fetched ${designSystemReferences.length} design system reference image(s) (${elapsed()})`
     );
@@ -345,6 +362,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       projectBrief,
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
       language: reviewLanguage,
+      platform: reviewPlatform,
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
@@ -599,18 +617,32 @@ app.post("/extract-guidelines", async (req: Request, res: Response) => {
  * page shows this for review before POSTing to /apply-guideline-updates.
  * See src/guidelinePlacement.ts.
  */
-app.post("/plan-guideline-updates", async (req: Request, res: Response) => {
-  const { guidelines, language } = req.body ?? {};
+const VALID_CANDIDATE_PLATFORMS = ["web", "mobile", "both"];
 
-  if (!Array.isArray(guidelines) || guidelines.length === 0 || guidelines.some((g) => typeof g !== "string")) {
+app.post("/plan-guideline-updates", async (req: Request, res: Response) => {
+  const { candidates, language } = req.body ?? {};
+
+  const valid =
+    Array.isArray(candidates) &&
+    candidates.length > 0 &&
+    candidates.every(
+      (c) =>
+        c &&
+        typeof c.guideline === "string" &&
+        c.guideline.length > 0 &&
+        VALID_CANDIDATE_PLATFORMS.includes(c.platform)
+    );
+  if (!valid) {
     return res.status(400).json({
-      error: "Request body must include a non-empty array of string 'guidelines'",
+      error:
+        "Request body must include a non-empty array 'candidates', each with a non-empty " +
+        "string 'guideline' and a 'platform' of 'web', 'mobile', or 'both'",
     });
   }
 
   try {
     const existingContent = (await getGuidelines()) ?? "";
-    const placements = await planGuidelinePlacements(guidelines, existingContent, parseLanguage(language));
+    const placements = await planGuidelinePlacements(candidates, existingContent, parseLanguage(language));
     return res.json({ placements });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

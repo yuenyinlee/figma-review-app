@@ -95,7 +95,8 @@
     color: #666;
     text-align: center;
   }
-  #language-label {
+  #language-label,
+  #platform-label {
     font-size: 11px;
     color: #666;
     margin-bottom: 4px;
@@ -136,6 +137,11 @@
 </div>
 
 <div id="review-view" style="display: none">
+  <div id="platform-label">Interface type</div>
+  <div id="platform-control" class="segmented">
+    <button type="button" class="segment" data-platform="web">Web</button>
+    <button type="button" class="segment" data-platform="mobile">Mobile</button>
+  </div>
   <div id="language-label">Comment language</div>
   <div id="language-control" class="segmented">
     <button type="button" class="segment" data-lang="en">EN</button>
@@ -162,12 +168,27 @@
   const saveAccessCodeButton = document.getElementById("save-access-code-button");
   const changeAccessCodeLink = document.getElementById("change-access-code-link");
   const languageControl = document.getElementById("language-control");
+  const platformControl = document.getElementById("platform-control");
 
   function setActiveLanguageSegment(lang) {
     for (const segment of languageControl.querySelectorAll(".segment")) {
       segment.classList.toggle("active", segment.dataset.lang === lang);
     }
   }
+
+  // Not persisted like language -- re-suggested fresh by code.ts whenever
+  // the Figma selection changes, though still overridable here before
+  // clicking review.
+  let currentPlatform = "web";
+
+  function setActivePlatformSegment(platform) {
+    currentPlatform = platform;
+    for (const segment of platformControl.querySelectorAll(".segment")) {
+      segment.classList.toggle("active", segment.dataset.platform === platform);
+    }
+  }
+
+  setActivePlatformSegment(currentPlatform);
 
   function setStatus(text, isError) {
     status.textContent = text || "";
@@ -219,7 +240,13 @@
     setButtonsDisabled(true);
     results.innerHTML = "";
     setStatus("Starting review...");
-    parent.postMessage({ pluginMessage: { type: "review" } }, "*");
+    parent.postMessage({ pluginMessage: { type: "review", platform: currentPlatform } }, "*");
+  });
+
+  platformControl.addEventListener("click", (event) => {
+    const segment = event.target.closest(".segment");
+    if (!segment) return;
+    setActivePlatformSegment(segment.dataset.platform);
   });
 
   flowButton.addEventListener("click", () => {
@@ -260,6 +287,8 @@
       } else {
         showAccessCodeView();
       }
+    } else if (message.type === "platformSuggestion") {
+      setActivePlatformSegment(message.platform);
     } else if (message.type === "needsAccessCode") {
       showAccessCodeView(message.message);
     } else if (message.type === "accessCodeSaved") {

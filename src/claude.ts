@@ -22,6 +22,9 @@ export interface ImageInput {
 
 export type ReviewLanguage = "en" | "ja" | "zh-Hant" | "zh-Hans";
 
+/** Which interface type a frame is -- determines which design system reference file (and which platform-scoped guideline sections) apply. */
+export type ReviewPlatform = "web" | "mobile";
+
 export const LANGUAGE_NAMES: Record<ReviewLanguage, string> = {
   en: "English",
   ja: "Japanese (日本語)",
@@ -265,6 +268,8 @@ export interface NodeBoundCritiqueInput {
   existingAnnotations?: ExistingAnnotation[];
   /** Which language to write comments/elementDescription in. Defaults to English. */
   language?: ReviewLanguage;
+  /** Whether this frame is a web or mobile interface -- scopes which "### Web"/"### Mobile" guideline subsections apply. */
+  platform?: ReviewPlatform;
 }
 
 function buildNodeAnnotationsSchema(nodeIds: string[]) {
@@ -496,6 +501,18 @@ export async function getNodeBoundAnnotations(
     instructions +=
       "\n\nThe team has also written these design system guidelines. Check the " +
       `frame against them and call out any violations:\n\n"""\n${input.guidelines}\n"""`;
+
+    if (input.platform) {
+      const platformLabel = input.platform === "mobile" ? "Mobile" : "Web";
+      const otherLabel = input.platform === "mobile" ? "Web" : "Mobile";
+      instructions +=
+        `\n\nThis frame is a ${platformLabel} interface. Some categories above nest a ` +
+        `"### Web" or "### Mobile" sub-heading under their main heading -- a rule directly ` +
+        "under a category's main heading (with no platform sub-heading) applies to both " +
+        `platforms and always applies here. A rule under "### ${platformLabel}" also ` +
+        `applies. Ignore anything under "### ${otherLabel}" entirely -- it doesn't apply ` +
+        "to this frame.";
+    }
   }
 
   if (input.projectBrief) {
