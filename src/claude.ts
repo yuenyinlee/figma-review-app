@@ -490,12 +490,24 @@ export async function getNodeBoundAnnotations(
     "something like \"danger\" or \"destructive\"; a dismissive or secondary " +
     "action (e.g. \"Cancel\", \"Back\") using the same primary/default variant " +
     "as the main affirmative action; two or more instances sharing the exact " +
-    "same variant name (e.g. both \"role=default\") sitting adjacent to each " +
-    "other as competing actions in the same view/dialog -- that's a strong " +
-    "signal only one of them should be primary. A mismatch between a " +
+    "same primary/default variant name ANYWHERE in the frame -- not just ones " +
+    "sitting next to each other, since a screen can have competing primary " +
+    "actions far apart (e.g. one in a header and one in a footer) -- that's a " +
+    "strong signal only one of them should be primary. A mismatch between a " +
     "component's variant and its actual semantic role is just as much a " +
     "design_system violation as using no real component at all, even though " +
-    "every layer involved is a genuine shared instance.";
+    "every layer involved is a genuine shared instance.\n\n" +
+    "Some written guidelines (and this variant-counting check) describe a " +
+    "property of the FRAME AS A WHOLE -- e.g. \"no more than one primary " +
+    "button per screen\", \"only one H1 per page\" -- rather than something " +
+    "checkable by looking at a single layer in isolation. For these, " +
+    "explicitly tally the relevant layers/instances across the ENTIRE frame " +
+    "(every instance of the component in question, wherever it sits) before " +
+    "deciding compliance -- don't rely on noticing a violation only when two " +
+    "such layers happen to be examined back to back. If violated, report it " +
+    "once, attached to whichever instance seems like the intended one to " +
+    "keep, and name the other conflicting instance(s) by their visible label " +
+    "in the comment.";
 
   if (input.guidelines) {
     instructions +=
