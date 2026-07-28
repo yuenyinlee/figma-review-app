@@ -169,12 +169,15 @@ export async function getNodeDimensions(
 
 /**
  * Lists a file's pages and returns just the ones the team has marked ready
- * for design-system reference by prefixing the page name with "✅" --
- * discovered live on every call, so adding/renaming/removing a checkmark in
+ * for design-system reference by prefixing the page name with "✅" or "✴️" --
+ * discovered live on every call, so adding/renaming/removing a marker in
  * Figma takes effect on the very next review with no config change needed.
  * Uses depth=1 so this stays a light request (page names only, not each
  * page's full contents).
  */
+const DESIGN_SYSTEM_PAGE_MARKER = /✅|✴️?/u;
+const DESIGN_SYSTEM_PAGE_MARKER_GLOBAL = /✅|✴️?/gu;
+
 export async function fetchCheckedPages(fileKey: string): Promise<{ label: string; nodeId: string }[]> {
   const token = getFigmaToken();
   const url = `${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}?depth=1`;
@@ -193,8 +196,8 @@ export async function fetchCheckedPages(fileKey: string): Promise<{ label: strin
   };
 
   return json.document.children
-    .filter((child) => child.type === "CANVAS" && child.name.includes("✅"))
-    .map((page) => ({ label: page.name.replace(/✅/g, "").trim(), nodeId: page.id }));
+    .filter((child) => child.type === "CANVAS" && DESIGN_SYSTEM_PAGE_MARKER.test(child.name))
+    .map((page) => ({ label: page.name.replace(DESIGN_SYSTEM_PAGE_MARKER_GLOBAL, "").trim(), nodeId: page.id }));
 }
 
 /**
