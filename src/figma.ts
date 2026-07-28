@@ -168,6 +168,36 @@ export async function getNodeDimensions(
 }
 
 /**
+ * Lists a file's pages and returns just the ones the team has marked ready
+ * for design-system reference by prefixing the page name with "✅" --
+ * discovered live on every call, so adding/renaming/removing a checkmark in
+ * Figma takes effect on the very next review with no config change needed.
+ * Uses depth=1 so this stays a light request (page names only, not each
+ * page's full contents).
+ */
+export async function fetchCheckedPages(fileKey: string): Promise<{ label: string; nodeId: string }[]> {
+  const token = getFigmaToken();
+  const url = `${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}?depth=1`;
+
+  const res = await fetchWithRetry(url, {
+    headers: { "X-Figma-Token": token },
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Figma page list lookup failed: ${res.status} ${await res.text()}`);
+  }
+
+  const json = (await res.json()) as {
+    document: { children: { id: string; name: string; type: string }[] };
+  };
+
+  return json.document.children
+    .filter((child) => child.type === "CANVAS" && child.name.includes("✅"))
+    .map((page) => ({ label: page.name.replace(/✅/g, "").trim(), nodeId: page.id }));
+}
+
+/**
  * Picks the largest render scale (up to DEFAULT_SCALE) that keeps both
  * image dimensions under Claude's 8000px limit. Falls back to a
  * conservative scale if the node's size can't be determined.

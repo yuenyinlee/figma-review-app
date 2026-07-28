@@ -3,6 +3,7 @@ import crypto from "crypto";
 import path from "path";
 import express, { Request, Response } from "express";
 import {
+  fetchCheckedPages,
   fetchFrameImageBase64,
   fetchNodeImagesBase64,
   fetchProjectBrief,
@@ -78,37 +79,22 @@ app.use((req: Request, res: Response, next) => {
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 /**
- * Parses a DESIGN_SYSTEM_PAGES-style env var, a comma-separated list of
- * "Label=nodeId" pairs, e.g. "Components=1:23,Typography=4:56". Returns []
- * if unset.
- */
-function parseDesignSystemPages(raw: string | undefined): { label: string; nodeId: string }[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const [label, ...rest] = entry.split("=");
-      return { label: label.trim(), nodeId: rest.join("=").trim() };
-    })
-    .filter((entry) => entry.label && entry.nodeId);
-}
-
-/**
- * Fetches every configured design system page (for the given platform) as a
- * labeled reference image, in a single batched Figma request. Web uses
- * DESIGN_SYSTEM_FILE_KEY/DESIGN_SYSTEM_PAGES, mobile uses
- * MOBILE_DESIGN_SYSTEM_FILE_KEY/MOBILE_DESIGN_SYSTEM_PAGES. Returns [] if
- * the relevant pair isn't configured.
+ * Fetches every ✅-marked page in the configured design system file (for the
+ * given platform) as a labeled reference image, in a single batched Figma
+ * request. Web uses DESIGN_SYSTEM_FILE_KEY, mobile uses
+ * MOBILE_DESIGN_SYSTEM_FILE_KEY -- which pages count is discovered live from
+ * the file itself (see fetchCheckedPages), not a separately maintained list,
+ * so a checkmark added/removed/renamed in Figma takes effect on the very
+ * next review. Returns [] if the relevant file key isn't configured, or the
+ * file has no ✅-marked pages.
  */
 async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<LabeledImage[]> {
   const fileKey =
     platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_FILE_KEY : process.env.DESIGN_SYSTEM_FILE_KEY;
-  const pages = parseDesignSystemPages(
-    platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_PAGES : process.env.DESIGN_SYSTEM_PAGES
-  );
-  if (!fileKey || pages.length === 0) return [];
+  if (!fileKey) return [];
+
+  const pages = await fetchCheckedPages(fileKey);
+  if (pages.length === 0) return [];
 
   const images = await fetchNodeImagesBase64(
     fileKey,
