@@ -35,12 +35,16 @@ const SKIP_DESCEND_TYPES = new Set<string>(["BOOLEAN_OPERATION", "INSTANCE"]);
 // Guardrail against icon-heavy trees blowing up the prompt sent to Claude.
 const MAX_CANDIDATE_NODES = 150;
 
-// Claude rejects images with either dimension over 8000px. Mirrors the
-// scale-picking logic in src/figma.ts's computeSafeScale -- the plugin just
-// gets the frame's real size for free, since it's already selected locally.
-const SAFE_TARGET_PX = 7000;
+// Claude allows individual images up to 8000px, but a request bundling many
+// images at once (this frame plus every design-system reference page) is
+// held to a stricter per-image cap of 2000px -- and Claude downsamples
+// anything past ~1568px for interpretation anyway, so aiming below that
+// costs nothing. Mirrors the scale-picking logic in src/figma.ts's
+// computeSafeScale -- the plugin just gets the frame's real size for free,
+// since it's already selected locally.
+const SAFE_TARGET_PX = 1568;
 const DEFAULT_SCALE = 2;
-const HARD_CAP_PX = 7900;
+const HARD_CAP_PX = 1900;
 const MAX_EXPORT_ATTEMPTS = 5;
 
 function computeSafeScale(width: number, height: number): number {
