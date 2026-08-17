@@ -72,21 +72,27 @@ type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
 /**
  * Figma's API occasionally returns a transient 500 ("Internal error, please
- * try again later"), especially when rendering large/complex nodes. Retry a
- * couple of times with a short backoff before giving up.
+ * try again later"), especially when rendering large/complex nodes, and can
+ * also return a 429 when a review's burst of per-node image requests (one
+ * design-system reference page at a time) outpaces its rate limit. Retry a
+ * few times with backoff before giving up, honoring Retry-After when Figma
+ * sends one.
  */
 async function fetchWithRetry(
   url: string,
   options: Parameters<typeof fetch>[1],
-  maxAttempts = 3
+  maxAttempts = 5
 ): Promise<FetchResponse> {
   let res: FetchResponse;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     res = await fetch(url, options);
-    if (res.ok || res.status < 500 || attempt === maxAttempts) {
+    const isRetryable = res.status >= 500 || res.status === 429;
+    if (res.ok || !isRetryable || attempt === maxAttempts) {
       return res;
     }
-    const delayMs = 2000 * attempt;
+    const retryAfterHeader = res.headers.get("retry-after");
+    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+    const delayMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 2000 * attempt;
     console.log(
       `[figma] got ${res.status} from Figma, retrying in ${delayMs}ms (attempt ${attempt}/${maxAttempts})`
     );
@@ -303,8 +309,13 @@ export async function fetchNodeImagesBase64(
   nodeIds: string[]
 ): Promise<Record<string, ImageResult>> {
   const results: Record<string, ImageResult> = {};
-  for (const nodeId of nodeIds) {
-    results[nodeId] = await fetchSingleNodeImage(fileKey, nodeId);
+  for (let i = 0; i < nodeIds.length; i++) {
+    if (i > 0) {
+      // Small stagger so a large reference set (each node needs its own
+      // dimension lookup + render call) doesn't burst Figma's rate limit.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    results[nodeIds[i]] = await fetchSingleNodeImage(fileKey, nodeIds[i]);
   }
   return results;
 }
