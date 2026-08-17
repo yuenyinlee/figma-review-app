@@ -6,18 +6,22 @@ const FIGMA_API_BASE = "https://api.figma.com/v1";
 // a timeout, a stuck render would hang the request forever with no error.
 const REQUEST_TIMEOUT_MS = 45_000;
 
-// Claude rejects images with either dimension over 8000px. We look up each
-// node's real size and pick the largest scale that stays safely under that.
-// We target well under the actual limit because effects like drop shadows
-// can extend the rendered PNG past the node's reported bounding box, and
-// Figma's own pixel rounding can push things over a tight target.
-const MAX_DIMENSION_PX = 8000;
-const SAFE_TARGET_PX = 7000;
+// Claude allows individual images up to 8000px, but a request bundling many
+// images at once (a review's frame plus every design-system reference page)
+// is held to a stricter per-image cap of 2000px -- and Claude downsamples
+// anything past ~1568px for interpretation anyway, so aiming below that
+// costs nothing. We look up each node's real size and pick the largest scale
+// that stays safely under the target. We target well under it because
+// effects like drop shadows can extend the rendered PNG past the node's
+// reported bounding box, and Figma's own pixel rounding can push things over
+// a tight target.
+const SAFE_TARGET_PX = 1568;
 const DEFAULT_SCALE = 2;
-// A little margin under MAX_DIMENSION_PX, and how many times to retry a
-// render that still comes out oversized (effects/rotation can make Figma's
-// actual render bigger than the bounding-box estimate predicted).
-const HARD_CAP_PX = 7900;
+// A little margin under the 2000px many-image hard limit, and how many
+// times to retry a render that still comes out oversized (effects/rotation
+// can make Figma's actual render bigger than the bounding-box estimate
+// predicted).
+const HARD_CAP_PX = 1900;
 const MAX_RENDER_ATTEMPTS = 5;
 
 export interface ImageResult {
