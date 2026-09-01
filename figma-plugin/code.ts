@@ -732,7 +732,10 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
     return;
   }
 
-  figma.ui.postMessage({ type: "status", message: "Asking the review backend..." });
+  figma.ui.postMessage({
+    type: "status",
+    message: `Asking the review backend... [debug: fileKey=${JSON.stringify(figma.fileKey)} nodeId=${JSON.stringify(root.id)}]`,
+  });
   let result: PluginReviewResponse;
   try {
     const response = await fetch(`${BACKEND_URL}/plugin-review`, {
