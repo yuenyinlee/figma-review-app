@@ -155,6 +155,32 @@ async function getStoredAccessCode(): Promise<string | undefined> {
   return typeof code === "string" && code.length > 0 ? code : undefined;
 }
 
+// figma.fileKey is a private-plugin-only API -- it's always undefined once
+// this plugin is installed from Community (Public plugins can't access it,
+// regardless of the enablePrivatePluginApi manifest flag, which only takes
+// effect in local development or for an org-private plugin). So instead the
+// user pastes the file's own Figma link once, and we pull the file key back
+// out of it ourselves. Stored globally (like the access code), prefilled
+// next time as a convenience, but meant to be updated whenever reviewing a
+// different file.
+const FILE_LINK_STORAGE_KEY = "fileLink";
+
+async function getStoredFileLink(): Promise<string | undefined> {
+  const link = await figma.clientStorage.getAsync(FILE_LINK_STORAGE_KEY);
+  return typeof link === "string" && link.length > 0 ? link : undefined;
+}
+
+/** Mirrors the file-key half of src/figma.ts's parseFigmaLink. */
+function parseFileKeyFromLink(link: string): string | undefined {
+  const match = link.match(/\/(file|design)\/([a-zA-Z0-9]+)/);
+  return match ? match[2] : undefined;
+}
+
+async function resolveFileKey(): Promise<string | undefined> {
+  const link = await getStoredFileLink();
+  return link ? parseFileKeyFromLink(link) : undefined;
+}
+
 type ReviewLanguage = "en" | "ja" | "zh-Hant" | "zh-Hans";
 const LANGUAGE_STORAGE_KEY = "reviewLanguage";
 const VALID_LANGUAGES: ReviewLanguage[] = ["en", "ja", "zh-Hant", "zh-Hans"];
@@ -210,11 +236,14 @@ function notifyPlatformSuggestion(): void {
 figma.on("selectionchange", notifyPlatformSuggestion);
 
 // Tell the UI right away whether an access code is already stored (so it
-// shows the right view without a visible flash of the wrong one), and the
-// current comment-language preference so the segmented control reflects it.
-Promise.all([getStoredAccessCode(), getStoredLanguage()]).then(([code, language]) => {
-  figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code), language });
-});
+// shows the right view without a visible flash of the wrong one), the
+// current comment-language preference so the segmented control reflects it,
+// and the last-pasted file link so that field starts prefilled.
+Promise.all([getStoredAccessCode(), getStoredLanguage(), getStoredFileLink()]).then(
+  ([code, language, fileLink]) => {
+    figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code), language, fileLink: fileLink ?? "" });
+  }
+);
 
 // Suggest a platform for whatever's already selected when the plugin opens.
 notifyPlatformSuggestion();
@@ -552,6 +581,15 @@ async function runFlowReview(): Promise<void> {
     return;
   }
 
+  const fileKey = await resolveFileKey();
+  if (!fileKey) {
+    figma.ui.postMessage({
+      type: "error",
+      message: "Paste this file's Figma link above (Share > Copy link) before reviewing.",
+    });
+    return;
+  }
+
   const selection = figma.currentPage.selection;
   if (selection.length !== 1 || selection[0].type !== "SECTION") {
     figma.ui.postMessage({
@@ -621,7 +659,7 @@ async function runFlowReview(): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
       body: JSON.stringify({
-        fileKey: figma.fileKey,
+        fileKey,
         pageNodeId: figma.currentPage.id,
         sectionNodeId: section.id,
         frames,
@@ -690,6 +728,15 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
     return;
   }
 
+  const fileKey = await resolveFileKey();
+  if (!fileKey) {
+    figma.ui.postMessage({
+      type: "error",
+      message: "Paste this file's Figma link above (Share > Copy link) before reviewing.",
+    });
+    return;
+  }
+
   const selection = figma.currentPage.selection;
 
   if (selection.length !== 1) {
@@ -732,17 +779,14 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
     return;
   }
 
-  figma.ui.postMessage({
-    type: "status",
-    message: `Asking the review backend... [debug: fileKey=${JSON.stringify(figma.fileKey)} nodeId=${JSON.stringify(root.id)}]`,
-  });
+  figma.ui.postMessage({ type: "status", message: "Asking the review backend..." });
   let result: PluginReviewResponse;
   try {
     const response = await fetch(`${BACKEND_URL}/plugin-review`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
       body: JSON.stringify({
-        fileKey: figma.fileKey,
+        fileKey,
         pageNodeId: figma.currentPage.id,
         nodeId: root.id,
         frameImage: uint8ArrayToBase64(imageBytes),
@@ -788,7 +832,13 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
   figma.ui.postMessage({ type: "done", applied, failedCount });
 }
 
-figma.ui.onmessage = (message: { type: string; code?: string; language?: string; platform?: string }) => {
+figma.ui.onmessage = (message: {
+  type: string;
+  code?: string;
+  language?: string;
+  platform?: string;
+  link?: string;
+}) => {
   if (message.type === "review") {
     const platform = VALID_PLATFORMS.includes(message.platform as ReviewPlatform)
       ? (message.platform as ReviewPlatform)
@@ -806,5 +856,7 @@ figma.ui.onmessage = (message: { type: string; code?: string; language?: string;
     });
   } else if (message.type === "setLanguage" && VALID_LANGUAGES.includes(message.language as ReviewLanguage)) {
     figma.clientStorage.setAsync(LANGUAGE_STORAGE_KEY, message.language);
+  } else if (message.type === "setFileLink" && typeof message.link === "string") {
+    figma.clientStorage.setAsync(FILE_LINK_STORAGE_KEY, message.link.trim());
   }
 };

@@ -97,7 +97,8 @@
     text-align: center;
   }
   #language-label,
-  #platform-label {
+  #platform-label,
+  #file-link-label {
     font-size: 11px;
     color: #666;
     margin-bottom: 4px;
@@ -147,6 +148,8 @@
 </div>
 
 <div id="review-view" style="display: none">
+  <div id="file-link-label">Figma file link (paste this file's URL -- update if you switch files)</div>
+  <input id="file-link-input" type="text" placeholder="https://www.figma.com/design/..." />
   <div id="platform-label">Interface type</div>
   <div id="platform-control" class="segmented">
     <button type="button" class="segment" data-platform="web">Web</button>
@@ -159,7 +162,7 @@
     <button type="button" class="segment" data-lang="zh-Hant">繁中</button>
     <button type="button" class="segment" data-lang="zh-Hans">简中</button>
   </div>
-  <div id="review-actions-title">Design Review Assistant <span id="build-version">v1.2-debug</span></div>
+  <div id="review-actions-title">Design Review Assistant <span id="build-version">v1.3</span></div>
   <button id="review-button">Review Selected Frame</button>
   <button id="review-flow-button" class="secondary">Review User Flow</button>
   <a href="https://figma-review-app.onrender.com/guidelines-review" target="_blank" rel="noopener" id="guidelines-writer-link">Open Guidelines Writer ↗</a>
@@ -181,6 +184,11 @@
   const changeAccessCodeLink = document.getElementById("change-access-code-link");
   const languageControl = document.getElementById("language-control");
   const platformControl = document.getElementById("platform-control");
+  const fileLinkInput = document.getElementById("file-link-input");
+
+  fileLinkInput.addEventListener("change", () => {
+    parent.postMessage({ pluginMessage: { type: "setFileLink", link: fileLinkInput.value } }, "*");
+  });
 
   function setActiveLanguageSegment(lang) {
     for (const segment of languageControl.querySelectorAll(".segment")) {
@@ -294,6 +302,7 @@
 
     if (message.type === "init") {
       setActiveLanguageSegment(message.language || "en");
+      fileLinkInput.value = message.fileLink || "";
       if (message.hasAccessCode) {
         showReviewView();
       } else {
