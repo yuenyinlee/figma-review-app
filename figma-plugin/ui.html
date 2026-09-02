@@ -12,13 +12,29 @@
     --radius-lg: 16px;
     --radius-full: 999px;
   }
+  html,
+  body {
+    height: 100%;
+  }
   body {
     font-family: Inter, "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
     margin: 0;
-    padding: 14px;
+    padding: 0;
     color: var(--text);
     background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  #main-scroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 14px;
+  }
+  #app-footer {
+    flex: none;
+    padding: 8px 14px 12px;
+    border-top: 1px solid var(--border);
   }
   #app-header {
     display: flex;
@@ -67,8 +83,7 @@
   .row-hint {
     font-size: 10px;
     color: var(--text-muted);
-    margin-top: -4px;
-    margin-bottom: 8px;
+    margin-top: 4px;
   }
   button {
     width: 100%;
@@ -207,9 +222,10 @@
   }
 </style>
 
+<div id="main-scroll">
 <div id="app-header">
   <span id="app-title">Design Review Assistant</span>
-  <span id="build-version">v1.5</span>
+  <span id="build-version">v9</span>
 </div>
 
 <div id="access-code-view" style="display: none">
@@ -272,12 +288,16 @@
 
   <button id="review-button">Review Selected Frame</button>
   <button id="review-flow-button" class="secondary">Review User Flow</button>
-  <a href="https://figma-review-app.onrender.com/guidelines-review" target="_blank" rel="noopener" id="guidelines-writer-link">Open Guidelines Writer ↗</a>
-  <a href="#" id="change-access-code-link">Change access code</a>
 </div>
 
 <div id="status"></div>
 <ul id="results"></ul>
+</div>
+
+<div id="app-footer" style="display: none">
+  <a href="https://figma-review-app.onrender.com/guidelines-review" target="_blank" rel="noopener" id="guidelines-writer-link">Open Guidelines Writer ↗</a>
+  <a href="#" id="change-access-code-link">Change access code</a>
+</div>
 
 <script>
   const button = document.getElementById("review-button");
@@ -286,6 +306,7 @@
   const results = document.getElementById("results");
   const accessCodeView = document.getElementById("access-code-view");
   const reviewView = document.getElementById("review-view");
+  const appFooter = document.getElementById("app-footer");
   const accessCodeInput = document.getElementById("access-code-input");
   const saveAccessCodeButton = document.getElementById("save-access-code-button");
   const changeAccessCodeLink = document.getElementById("change-access-code-link");
@@ -330,12 +351,14 @@
   function showAccessCodeView(message) {
     accessCodeView.style.display = "block";
     reviewView.style.display = "none";
+    appFooter.style.display = "none";
     setStatus(message, Boolean(message));
   }
 
   function showReviewView() {
     accessCodeView.style.display = "none";
     reviewView.style.display = "block";
+    appFooter.style.display = "block";
     setStatus("");
   }
 
