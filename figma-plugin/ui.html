@@ -1,44 +1,184 @@
 <style>
+  :root {
+    --bg: #f3f4f7;
+    --card-bg: #ffffff;
+    --text: #262b33;
+    --text-muted: #767c88;
+    --border: rgba(20, 24, 32, 0.08);
+    --primary: #5b7a99;
+    --primary-hover: #4c6883;
+    --primary-soft: #e7edf2;
+    --danger: #c0392b;
+    --radius-lg: 16px;
+    --radius-full: 999px;
+  }
   body {
     font-family: Inter, "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
     margin: 0;
-    padding: 12px;
-    color: #1e1e1e;
+    padding: 14px;
+    color: var(--text);
+    background: var(--bg);
+  }
+  #app-header {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 0 2px;
+  }
+  #app-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  #build-version {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 2px rgba(20, 24, 32, 0.04), 0 1px 10px rgba(20, 24, 32, 0.04);
+    padding: 4px 14px;
+    margin-bottom: 10px;
+  }
+  .card-row {
+    padding: 10px 0;
+  }
+  .card-row + .card-row {
+    border-top: 1px solid var(--border);
+  }
+  .row-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .row-label svg {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    color: var(--text-muted);
+  }
+  .row-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: -4px;
+    margin-bottom: 8px;
   }
   button {
     width: 100%;
-    padding: 8px 12px;
-    background: #18a0fb;
+    padding: 11px 12px;
+    background: var(--primary);
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-full);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
   }
+  button:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
   button:disabled {
-    background: #b3e0ff;
+    background: var(--primary-soft);
+    color: var(--text-muted);
     cursor: default;
   }
+  button.secondary {
+    margin-top: 8px;
+    background: transparent;
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+    padding: 9.5px 12px;
+  }
+  button.secondary:hover:not(:disabled) {
+    background: var(--primary-soft);
+  }
+  button.secondary:disabled {
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  input::placeholder {
+    color: var(--text-muted);
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+  #access-code-view p {
+    margin: 4px 2px 10px;
+    color: var(--text-muted);
+  }
+  #change-access-code-link,
+  #guidelines-writer-link {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    text-decoration: none;
+  }
+  #change-access-code-link:hover,
+  #guidelines-writer-link:hover {
+    color: var(--primary);
+  }
+  .segmented {
+    display: flex;
+    background: var(--bg);
+    border-radius: var(--radius-full);
+    padding: 3px;
+  }
+  .segmented .segment {
+    flex: 1;
+    width: auto;
+    margin: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 4px;
+    border-radius: var(--radius-full);
+  }
+  .segmented .segment.active {
+    background: var(--primary);
+    color: white;
+  }
   #status {
-    margin-top: 10px;
-    color: #666;
+    margin-top: 4px;
+    padding: 0 2px;
+    color: var(--text-muted);
   }
   #status.error {
-    color: #d32f2f;
+    color: var(--danger);
   }
   #results {
-    margin-top: 10px;
+    margin-top: 8px;
     padding: 0;
     list-style: none;
   }
   #results li {
-    padding: 8px 0;
-    border-top: 1px solid #e5e5e5;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
   }
   #results li .name {
-    font-weight: 600;
+    font-weight: 700;
     display: block;
     margin-bottom: 4px;
   }
@@ -65,104 +205,71 @@
   #results li .category.flow_logic {
     background: #00b894;
   }
-  button.secondary {
-    margin-top: 8px;
-    background: transparent;
-    color: #18a0fb;
-    border: 1px solid #18a0fb;
-  }
-  button.secondary:disabled {
-    color: #b3e0ff;
-    border-color: #b3e0ff;
-  }
-  input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 8px;
-    margin-bottom: 8px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-size: 12px;
-  }
-  #access-code-view p {
-    margin: 0 0 8px;
-    color: #666;
-  }
-  #change-access-code-link,
-  #guidelines-writer-link {
-    display: block;
-    margin-top: 8px;
-    font-size: 11px;
-    color: #666;
-    text-align: center;
-  }
-  #language-label,
-  #platform-label,
-  #file-link-label {
-    font-size: 11px;
-    color: #666;
-    margin-bottom: 4px;
-  }
-  .segmented {
-    display: flex;
-    border: 1px solid #18a0fb;
-    border-radius: 6px;
-    overflow: hidden;
-    margin-bottom: 8px;
-  }
-  .segmented .segment {
-    flex: 1;
-    width: auto;
-    margin: 0;
-    border: none;
-    border-radius: 0;
-    background: white;
-    color: #18a0fb;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 6px 4px;
-    cursor: pointer;
-  }
-  .segmented .segment + .segment {
-    border-left: 1px solid #18a0fb;
-  }
-  .segmented .segment.active {
-    background: #18a0fb;
-    color: white;
-  }
-  #review-actions-title {
-    font-size: 13px;
-    font-weight: 700;
-    margin-bottom: 8px;
-  }
-  #build-version {
-    font-weight: 400;
-    color: #999;
-  }
 </style>
 
+<div id="app-header">
+  <span id="app-title">Design Review Assistant</span>
+  <span id="build-version">v1.5</span>
+</div>
+
 <div id="access-code-view" style="display: none">
-  <p>Enter the team access code to use this plugin.</p>
-  <input id="access-code-input" type="password" placeholder="Access code" />
+  <div class="card">
+    <div class="card-row">
+      <p>Enter the team access code to use this plugin.</p>
+      <input id="access-code-input" type="password" placeholder="Access code" />
+    </div>
+  </div>
   <button id="save-access-code-button">Save</button>
 </div>
 
 <div id="review-view" style="display: none">
-  <div id="file-link-label">Figma file link (paste this file's URL -- update if you switch files)</div>
-  <input id="file-link-input" type="text" placeholder="https://www.figma.com/design/..." />
-  <div id="platform-label">Interface type</div>
-  <div id="platform-control" class="segmented">
-    <button type="button" class="segment" data-platform="web">Web</button>
-    <button type="button" class="segment" data-platform="mobile">Mobile</button>
+  <div class="card">
+    <div class="card-row">
+      <div id="file-link-label" class="row-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        Figma file link
+      </div>
+      <input id="file-link-input" type="text" placeholder="https://www.figma.com/design/..." />
+      <div class="row-hint">Update this if you switch to a different file</div>
+    </div>
   </div>
-  <div id="language-label">Comment language</div>
-  <div id="language-control" class="segmented">
-    <button type="button" class="segment" data-lang="en">EN</button>
-    <button type="button" class="segment" data-lang="ja">日本語</button>
-    <button type="button" class="segment" data-lang="zh-Hant">繁中</button>
-    <button type="button" class="segment" data-lang="zh-Hans">简中</button>
+
+  <div class="card">
+    <div class="card-row">
+      <div id="platform-label" class="row-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+        Interface type
+      </div>
+      <div id="platform-control" class="segmented">
+        <button type="button" class="segment" data-platform="web">Web</button>
+        <button type="button" class="segment" data-platform="mobile">Mobile</button>
+      </div>
+    </div>
+    <div class="card-row">
+      <div id="language-label" class="row-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+        Comment language
+      </div>
+      <div id="language-control" class="segmented">
+        <button type="button" class="segment" data-lang="en">EN</button>
+        <button type="button" class="segment" data-lang="ja">日本語</button>
+        <button type="button" class="segment" data-lang="zh-Hant">繁中</button>
+        <button type="button" class="segment" data-lang="zh-Hans">简中</button>
+      </div>
+    </div>
   </div>
-  <div id="review-actions-title">Design Review Assistant <span id="build-version">v1.4</span></div>
+
   <button id="review-button">Review Selected Frame</button>
   <button id="review-flow-button" class="secondary">Review User Flow</button>
   <a href="https://figma-review-app.onrender.com/guidelines-review" target="_blank" rel="noopener" id="guidelines-writer-link">Open Guidelines Writer ↗</a>
