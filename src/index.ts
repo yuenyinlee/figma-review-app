@@ -78,17 +78,32 @@ app.use((req: Request, res: Response, next) => {
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
+// Re-rendering every design-system reference page from scratch on every
+// single review was both slow and a major contributor to hitting Figma's
+// rate limit (each page needs its own dimension lookup + render call) --
+// yet those pages rarely change between reviews. Cache the rendered set per
+// platform for a while so a burst of reviews (the common case -- a
+// reviewer working through several frames in a row) only pays that cost
+// once.
+const DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS = 15 * 60 * 1000;
+const designSystemReferenceCache = new Map<ReviewPlatform, { images: LabeledImage[]; fetchedAt: number }>();
+
 /**
  * Fetches every ✅-marked page in the configured design system file (for the
  * given platform) as a labeled reference image, in a single batched Figma
  * request. Web uses DESIGN_SYSTEM_FILE_KEY, mobile uses
  * MOBILE_DESIGN_SYSTEM_FILE_KEY -- which pages count is discovered live from
  * the file itself (see fetchCheckedPages), not a separately maintained list,
- * so a checkmark added/removed/renamed in Figma takes effect on the very
- * next review. Returns [] if the relevant file key isn't configured, or the
- * file has no ✅-marked pages.
+ * so a checkmark added/removed/renamed in Figma takes effect within
+ * DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS of the next review. Returns [] if the
+ * relevant file key isn't configured, or the file has no ✅-marked pages.
  */
 async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<LabeledImage[]> {
+  const cached = designSystemReferenceCache.get(platform);
+  if (cached && Date.now() - cached.fetchedAt < DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS) {
+    return cached.images;
+  }
+
   const fileKey =
     platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_FILE_KEY : process.env.DESIGN_SYSTEM_FILE_KEY;
   if (!fileKey) return [];
@@ -101,7 +116,9 @@ async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<La
     pages.map((p) => p.nodeId)
   );
 
-  return pages.map((p) => ({ label: p.label, image: images[p.nodeId] }));
+  const references = pages.map((p) => ({ label: p.label, image: images[p.nodeId] }));
+  designSystemReferenceCache.set(platform, { images: references, fetchedAt: Date.now() });
+  return references;
 }
 
 /**
