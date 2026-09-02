@@ -104,6 +104,33 @@ async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<La
   return pages.map((p) => ({ label: p.label, image: images[p.nodeId] }));
 }
 
+/**
+ * Guards against a stale/wrong pasted file link. The plugin can no longer
+ * read figma.fileKey directly (it's a private-plugin-only API, unavailable
+ * once installed from Community -- see figma-plugin/code.ts), so the user
+ * pastes the file's link instead, which they might forget to update after
+ * switching files. A totally different or unrelated file either won't have
+ * this exact node ID at all, or will have some other node of a very
+ * different size sitting at it -- a locally-measured size close to what
+ * Figma itself reports for that ID is strong evidence it's the right file.
+ */
+async function verifyFileMatchesLocalNode(
+  fileKey: string,
+  nodeId: string,
+  localWidth: number,
+  localHeight: number
+): Promise<string | null> {
+  const remote = await getNodeDimensions(fileKey, nodeId);
+  if (!remote) {
+    return "That frame wasn't found in the file at the pasted link -- paste the current file's link (Share > Copy link) before reviewing.";
+  }
+  const closeEnough = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, a * 0.02);
+  if (!closeEnough(remote.width, localWidth) || !closeEnough(remote.height, localHeight)) {
+    return "This frame's size doesn't match the file at the pasted link -- make sure you've pasted the current file's link before reviewing.";
+  }
+  return null;
+}
+
 app.get("/", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
@@ -288,8 +315,18 @@ function parsePlatform(value: unknown): ReviewPlatform {
  * rather than a generic pin at an x/y coordinate.
  */
 app.post("/plugin-review", async (req: Request, res: Response) => {
-  const { fileKey, nodeId, frameImage, nodes, existingAnnotations, pageNodeId, language, platform } =
-    req.body ?? {};
+  const {
+    fileKey,
+    nodeId,
+    frameWidth,
+    frameHeight,
+    frameImage,
+    nodes,
+    existingAnnotations,
+    pageNodeId,
+    language,
+    platform,
+  } = req.body ?? {};
   const reviewLanguage = parseLanguage(language);
   const reviewPlatform = parsePlatform(platform);
 
@@ -307,6 +344,13 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
     return res.status(400).json({
       error: "Request body must include a non-empty 'nodes' array (the frame's candidate layers)",
     });
+  }
+
+  if (typeof frameWidth === "number" && typeof frameHeight === "number") {
+    const mismatch = await verifyFileMatchesLocalNode(fileKey, nodeId, frameWidth, frameHeight);
+    if (mismatch) {
+      return res.status(400).json({ error: mismatch });
+    }
   }
 
   const started = Date.now();
@@ -442,6 +486,14 @@ app.post("/flow-review", async (req: Request, res: Response) => {
     return res.status(400).json({
       error: "Request body must include a 'frames' array with at least 2 frames",
     });
+  }
+
+  const [firstFrame] = frames;
+  if (typeof firstFrame?.nodeId === "string" && typeof firstFrame?.width === "number" && typeof firstFrame?.height === "number") {
+    const mismatch = await verifyFileMatchesLocalNode(fileKey, firstFrame.nodeId, firstFrame.width, firstFrame.height);
+    if (mismatch) {
+      return res.status(400).json({ error: mismatch });
+    }
   }
 
   const started = Date.now();

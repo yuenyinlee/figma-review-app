@@ -789,6 +789,10 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
         fileKey,
         pageNodeId: figma.currentPage.id,
         nodeId: root.id,
+        // Lets the backend confirm the pasted file link actually matches
+        // what's selected locally, since it can no longer trust figma.fileKey.
+        frameWidth: frameBox.width,
+        frameHeight: frameBox.height,
         frameImage: uint8ArrayToBase64(imageBytes),
         nodes,
         existingAnnotations,
