@@ -220,6 +220,90 @@
   #results li .category.flow_logic {
     background: #00b894;
   }
+  #results li .reactions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  #results li .reactions button {
+    width: auto;
+    flex: none;
+    padding: 4px 8px;
+    background: var(--bg);
+    color: var(--text-muted);
+    border-radius: var(--radius-full);
+  }
+  #results li .reactions button svg {
+    width: 13px;
+    height: 13px;
+    display: block;
+  }
+  #results li .reactions button.selected.up {
+    background: #dcefe4;
+    color: #1f8a4c;
+  }
+  #results li .reactions button.selected.down {
+    background: #f6dede;
+    color: var(--danger);
+  }
+  #leave-feedback-link {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  #leave-feedback-link:hover {
+    color: var(--primary);
+  }
+  .readonly-field {
+    font-size: 12px;
+    color: var(--text);
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .checkbox-row input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  .checkbox-row label {
+    flex: 1;
+  }
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12px;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--text);
+    resize: vertical;
+    min-height: 60px;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+  #back-to-review-link {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  #back-to-review-link:hover {
+    color: var(--primary);
+  }
 </style>
 
 <div id="main-scroll">
@@ -290,12 +374,62 @@
   <button id="review-flow-button" class="secondary">Review User Flow</button>
 </div>
 
+<div id="feedback-view" style="display: none">
+  <div class="card">
+    <div class="card-row">
+      <div class="row-label">Commenter</div>
+      <div id="feedback-commenter" class="readonly-field">--</div>
+    </div>
+    <div class="card-row">
+      <div class="row-label">Date &amp; time</div>
+      <div id="feedback-datetime" class="readonly-field">--</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-row">
+      <div class="row-label">Category</div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="category-unnecessary" value="Unnecessary" />
+        <label for="category-unnecessary">Unnecessary</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="category-repeated" value="Repeated" />
+        <label for="category-repeated">Repeated</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="category-bug" value="Bug" />
+        <label for="category-bug">Bug</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="category-missing-detection" value="Missing Detection" />
+        <label for="category-missing-detection">Missing Detection</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-row">
+      <div class="row-label">Comment</div>
+      <textarea id="feedback-comment-input" placeholder="What's on your mind about the app?"></textarea>
+    </div>
+    <div class="card-row">
+      <div class="row-label">Project name (optional)</div>
+      <input id="feedback-project-input" type="text" placeholder="Project name" />
+    </div>
+  </div>
+
+  <button id="submit-feedback-button">Submit Feedback</button>
+  <a href="#" id="back-to-review-link">Back to review</a>
+</div>
+
 <div id="status"></div>
 <ul id="results"></ul>
 </div>
 
 <div id="app-footer" style="display: none">
   <a href="https://figma-review-app.onrender.com/guidelines-review" target="_blank" rel="noopener" id="guidelines-writer-link">Open Guidelines Writer ↗</a>
+  <a href="#" id="leave-feedback-link">Leave Feedback</a>
   <a href="#" id="change-access-code-link">Change access code</a>
 </div>
 
@@ -306,6 +440,7 @@
   const results = document.getElementById("results");
   const accessCodeView = document.getElementById("access-code-view");
   const reviewView = document.getElementById("review-view");
+  const feedbackView = document.getElementById("feedback-view");
   const appFooter = document.getElementById("app-footer");
   const accessCodeInput = document.getElementById("access-code-input");
   const saveAccessCodeButton = document.getElementById("save-access-code-button");
@@ -313,6 +448,21 @@
   const languageControl = document.getElementById("language-control");
   const platformControl = document.getElementById("platform-control");
   const fileLinkInput = document.getElementById("file-link-input");
+  const leaveFeedbackLink = document.getElementById("leave-feedback-link");
+  const backToReviewLink = document.getElementById("back-to-review-link");
+  const submitFeedbackButton = document.getElementById("submit-feedback-button");
+  const feedbackCommenter = document.getElementById("feedback-commenter");
+  const feedbackDatetime = document.getElementById("feedback-datetime");
+  const feedbackCommentInput = document.getElementById("feedback-comment-input");
+  const feedbackProjectInput = document.getElementById("feedback-project-input");
+  const categoryCheckboxes = document.querySelectorAll(
+    '#feedback-view input[type="checkbox"]'
+  );
+
+  let commenterName = "";
+  // The file this review's comments belong to -- needed on each reaction
+  // sent back to the backend, since the plugin no longer has figma.fileKey.
+  let currentReviewFileKey = "";
 
   fileLinkInput.addEventListener("change", () => {
     parent.postMessage({ pluginMessage: { type: "setFileLink", link: fileLinkInput.value } }, "*");
@@ -351,6 +501,8 @@
   function showAccessCodeView(message) {
     accessCodeView.style.display = "block";
     reviewView.style.display = "none";
+    feedbackView.style.display = "none";
+    results.style.display = "none";
     appFooter.style.display = "none";
     setStatus(message, Boolean(message));
   }
@@ -358,8 +510,76 @@
   function showReviewView() {
     accessCodeView.style.display = "none";
     reviewView.style.display = "block";
+    feedbackView.style.display = "none";
+    results.style.display = "";
     appFooter.style.display = "block";
     setStatus("");
+  }
+
+  function showFeedbackView() {
+    accessCodeView.style.display = "none";
+    reviewView.style.display = "none";
+    feedbackView.style.display = "block";
+    results.style.display = "none";
+    appFooter.style.display = "block";
+    setStatus("");
+    feedbackCommenter.textContent = commenterName || "Unknown";
+    feedbackDatetime.textContent = new Date().toLocaleString();
+    feedbackCommentInput.value = "";
+    feedbackProjectInput.value = "";
+    for (const checkbox of categoryCheckboxes) {
+      checkbox.checked = false;
+    }
+    submitFeedbackButton.disabled = false;
+  }
+
+  const THUMB_UP_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+  const THUMB_DOWN_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
+
+  function addReactionButtons(li, item) {
+    if (!item.nodeId) return;
+
+    const reactions = document.createElement("div");
+    reactions.className = "reactions";
+
+    const upButton = document.createElement("button");
+    upButton.type = "button";
+    upButton.innerHTML = THUMB_UP_SVG;
+    const downButton = document.createElement("button");
+    downButton.type = "button";
+    downButton.innerHTML = THUMB_DOWN_SVG;
+
+    function react(verdict) {
+      const chosen = verdict === "up" ? upButton : downButton;
+      chosen.classList.add("selected", verdict);
+      upButton.disabled = true;
+      downButton.disabled = true;
+      parent.postMessage(
+        {
+          pluginMessage: {
+            type: "reactToComment",
+            fileKey: currentReviewFileKey,
+            nodeId: item.nodeId,
+            commentId: item.commentId,
+            category: item.categorySlug,
+            elementDescription: item.name,
+            comment: item.comment,
+            verdict,
+          },
+        },
+        "*"
+      );
+    }
+
+    upButton.addEventListener("click", () => react("up"));
+    downButton.addEventListener("click", () => react("down"));
+    reactions.appendChild(upButton);
+    reactions.appendChild(downButton);
+    li.appendChild(reactions);
   }
 
   function renderResults(applied, failedCount) {
@@ -377,6 +597,7 @@
       li.appendChild(category);
       li.appendChild(name);
       li.appendChild(comment);
+      addReactionButtons(li, item);
       results.appendChild(li);
     }
     if (failedCount > 0) {
@@ -426,6 +647,40 @@
     parent.postMessage({ pluginMessage: { type: "setLanguage", language: lang } }, "*");
   });
 
+  leaveFeedbackLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    showFeedbackView();
+  });
+
+  backToReviewLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    showReviewView();
+  });
+
+  submitFeedbackButton.addEventListener("click", () => {
+    const comment = feedbackCommentInput.value.trim();
+    if (!comment) {
+      setStatus("Write a comment before submitting.", true);
+      return;
+    }
+    const categories = Array.from(categoryCheckboxes)
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => checkbox.value);
+    submitFeedbackButton.disabled = true;
+    setStatus("Submitting feedback...");
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "submitFeedback",
+          comment,
+          categories,
+          projectName: feedbackProjectInput.value.trim(),
+        },
+      },
+      "*"
+    );
+  });
+
   window.onmessage = (event) => {
     const message = event.data.pluginMessage;
     if (!message) return;
@@ -433,6 +688,7 @@
     if (message.type === "init") {
       setActiveLanguageSegment(message.language || "en");
       fileLinkInput.value = message.fileLink || "";
+      commenterName = message.commenterName || "";
       if (message.hasAccessCode) {
         showReviewView();
       } else {
@@ -450,9 +706,16 @@
       setStatus(message.message, true);
       setButtonsDisabled(false);
     } else if (message.type === "done") {
+      currentReviewFileKey = message.fileKey || "";
       setStatus(`Done -- posted ${message.applied.length} comment(s).`);
       renderResults(message.applied, message.failedCount);
       setButtonsDisabled(false);
+    } else if (message.type === "feedbackSubmitted") {
+      setStatus("Thanks -- feedback submitted.");
+      submitFeedbackButton.disabled = false;
+    } else if (message.type === "feedbackError") {
+      setStatus(message.message, true);
+      submitFeedbackButton.disabled = false;
     }
   };
 </script>

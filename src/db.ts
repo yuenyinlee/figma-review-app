@@ -58,3 +58,62 @@ export function listReviews(limit = 20) {
     .prepare(`SELECT * FROM reviews ORDER BY id DESC LIMIT ?`)
     .all(limit);
 }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS comment_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    file_key TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    figma_comment_id TEXT,
+    category TEXT,
+    element_description TEXT,
+    comment TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    commenter_name TEXT
+  )
+`);
+
+export interface CommentFeedbackInput {
+  fileKey: string;
+  nodeId: string;
+  figmaCommentId?: string;
+  category?: string;
+  elementDescription?: string;
+  comment: string;
+  verdict: "up" | "down";
+  commenterName?: string;
+}
+
+const insertFeedbackStmt = db.prepare(`
+  INSERT INTO comment_feedback
+    (file_key, node_id, figma_comment_id, category, element_description, comment, verdict, commenter_name)
+  VALUES
+    (@fileKey, @nodeId, @figmaCommentId, @category, @elementDescription, @comment, @verdict, @commenterName)
+`);
+
+export function logCommentFeedback(input: CommentFeedbackInput): void {
+  insertFeedbackStmt.run({
+    fileKey: input.fileKey,
+    nodeId: input.nodeId,
+    figmaCommentId: input.figmaCommentId ?? null,
+    category: input.category ?? null,
+    elementDescription: input.elementDescription ?? null,
+    comment: input.comment,
+    verdict: input.verdict,
+    commenterName: input.commenterName ?? null,
+  });
+}
+
+/**
+ * Recent thumbs-down comments, used as "avoid comments like these" examples
+ * in future review prompts (see src/claude.ts). Most-recent-first, capped so
+ * a long history doesn't bloat the prompt -- recent feedback is also more
+ * likely to reflect the team's current judgment than very old reactions.
+ */
+export function getRecentDownvotedComments(limit = 15): string[] {
+  const rows = db
+    .prepare(`SELECT comment FROM comment_feedback WHERE verdict = 'down' ORDER BY id DESC LIMIT ?`)
+    .all(limit) as { comment: string }[];
+  return rows.map((r) => r.comment);
+}

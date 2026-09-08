@@ -241,7 +241,13 @@ figma.on("selectionchange", notifyPlatformSuggestion);
 // and the last-pasted file link so that field starts prefilled.
 Promise.all([getStoredAccessCode(), getStoredLanguage(), getStoredFileLink()]).then(
   ([code, language, fileLink]) => {
-    figma.ui.postMessage({ type: "init", hasAccessCode: Boolean(code), language, fileLink: fileLink ?? "" });
+    figma.ui.postMessage({
+      type: "init",
+      hasAccessCode: Boolean(code),
+      language,
+      fileLink: fileLink ?? "",
+      commenterName: getCommenterName() ?? "",
+    });
   }
 );
 
@@ -692,6 +698,8 @@ async function runFlowReview(): Promise<void> {
   const applied = result.comments
     .filter((c) => c.ok)
     .map((c) => ({
+      nodeId: c.nodeId,
+      commentId: c.commentId,
       name: c.elementDescription,
       categorySlug: c.category,
       categoryLabel: c.categoryLabel,
@@ -699,7 +707,7 @@ async function runFlowReview(): Promise<void> {
     }));
   const failedCount = result.comments.length - applied.length;
 
-  figma.ui.postMessage({ type: "done", applied, failedCount });
+  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey });
 }
 
 function describeError(err: unknown): string {
@@ -826,6 +834,8 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
   const applied = result.comments
     .filter((c) => c.ok)
     .map((c) => ({
+      nodeId: c.nodeId,
+      commentId: c.commentId,
       name: c.elementDescription,
       categorySlug: c.category,
       categoryLabel: c.categoryLabel,
@@ -833,7 +843,108 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
     }));
   const failedCount = result.comments.length - applied.length;
 
-  figma.ui.postMessage({ type: "done", applied, failedCount });
+  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey });
+}
+
+/** The plugin's only signal of who's using it -- there's no login of our own. */
+function getCommenterName(): string | undefined {
+  return figma.currentUser?.name;
+}
+
+/**
+ * Sends a thumbs up/down on one posted comment to the backend, which logs it
+ * and (for thumbs-down) feeds it back into future review prompts as an
+ * "avoid comments like this" example -- see src/db.ts's comment_feedback
+ * table and its use in src/index.ts. Best-effort: a failed reaction
+ * shouldn't interrupt the reviewer, so errors are swallowed rather than
+ * surfaced as a disruptive error banner.
+ */
+async function submitCommentReaction(payload: {
+  fileKey?: string;
+  nodeId?: string;
+  commentId?: string;
+  category?: string;
+  elementDescription?: string;
+  comment?: string;
+  verdict?: string;
+}): Promise<void> {
+  const accessCode = await getStoredAccessCode();
+  if (!accessCode) return;
+  if (
+    typeof payload.fileKey !== "string" ||
+    typeof payload.nodeId !== "string" ||
+    typeof payload.comment !== "string" ||
+    (payload.verdict !== "up" && payload.verdict !== "down")
+  ) {
+    return;
+  }
+
+  try {
+    await fetch(`${BACKEND_URL}/comment-feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
+      body: JSON.stringify({
+        fileKey: payload.fileKey,
+        nodeId: payload.nodeId,
+        figmaCommentId: payload.commentId,
+        category: payload.category,
+        elementDescription: payload.elementDescription,
+        comment: payload.comment,
+        verdict: payload.verdict,
+        commenterName: getCommenterName(),
+      }),
+    });
+  } catch {
+    // Best-effort, see above.
+  }
+}
+
+/**
+ * Submits the "Leave Feedback" form to the backend, which logs it as a new
+ * entry in the team's Notion feedback database -- see src/notion.ts.
+ */
+async function submitAppFeedback(payload: {
+  comment?: string;
+  categories?: string[];
+  projectName?: string;
+}): Promise<void> {
+  const accessCode = await getStoredAccessCode();
+  if (!accessCode) {
+    figma.ui.postMessage({ type: "needsAccessCode" });
+    return;
+  }
+  if (typeof payload.comment !== "string" || payload.comment.trim().length === 0) {
+    figma.ui.postMessage({ type: "feedbackError", message: "Write a comment before submitting." });
+    return;
+  }
+  const commenterName = getCommenterName();
+  if (!commenterName) {
+    figma.ui.postMessage({ type: "feedbackError", message: "Couldn't determine your Figma username." });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/app-feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Code": accessCode },
+      body: JSON.stringify({
+        comment: payload.comment.trim(),
+        categories: Array.isArray(payload.categories) ? payload.categories : [],
+        commenterName,
+        projectName: payload.projectName,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${response.status}: ${text}`);
+    }
+    figma.ui.postMessage({ type: "feedbackSubmitted" });
+  } catch (err) {
+    figma.ui.postMessage({
+      type: "feedbackError",
+      message: `Couldn't submit feedback: ${describeError(err)}`,
+    });
+  }
 }
 
 figma.ui.onmessage = (message: {
@@ -842,6 +953,15 @@ figma.ui.onmessage = (message: {
   language?: string;
   platform?: string;
   link?: string;
+  fileKey?: string;
+  nodeId?: string;
+  commentId?: string;
+  category?: string;
+  elementDescription?: string;
+  comment?: string;
+  verdict?: string;
+  categories?: string[];
+  projectName?: string;
 }) => {
   if (message.type === "review") {
     const platform = VALID_PLATFORMS.includes(message.platform as ReviewPlatform)
@@ -862,5 +982,11 @@ figma.ui.onmessage = (message: {
     figma.clientStorage.setAsync(LANGUAGE_STORAGE_KEY, message.language);
   } else if (message.type === "setFileLink" && typeof message.link === "string") {
     figma.clientStorage.setAsync(FILE_LINK_STORAGE_KEY, message.link.trim());
+  } else if (message.type === "reactToComment") {
+    submitCommentReaction(message).catch(() => {});
+  } else if (message.type === "submitFeedback") {
+    submitAppFeedback(message).catch((err) => {
+      figma.ui.postMessage({ type: "feedbackError", message: `Unexpected error: ${describeError(err)}` });
+    });
   }
 };

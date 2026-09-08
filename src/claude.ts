@@ -270,6 +270,8 @@ export interface NodeBoundCritiqueInput {
   language?: ReviewLanguage;
   /** Whether this frame is a web or mobile interface -- scopes which "### Web"/"### Mobile" guideline subsections apply. */
   platform?: ReviewPlatform;
+  /** Recent comments the team thumbs-downed as unhelpful -- see getRecentDownvotedComments. */
+  disfavoredExamples?: string[];
 }
 
 function buildNodeAnnotationsSchema(nodeIds: string[]) {
@@ -549,6 +551,15 @@ export async function getNodeBoundAnnotations(
       "infer.";
   }
 
+  if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
+    const examplesList = input.disfavoredExamples.map((c) => `- "${c}"`).join("\n");
+    instructions +=
+      "\n\nThe team has previously marked comments like these as unhelpful (too " +
+      "nitpicky, not actually a problem, or already covered by something else) " +
+      "-- avoid making similar comments unless the issue here is clearly and " +
+      `unambiguously present:\n\n${examplesList}`;
+  }
+
   instructions += languageInstruction(input.language);
 
   content.push({ type: "text", text: instructions });
@@ -616,6 +627,8 @@ export interface FlowCritiqueInput {
   frameAnnotations?: FlowFrameAnnotation[];
   /** Which language to write comments/elementDescription in. Defaults to English. */
   language?: ReviewLanguage;
+  /** Recent comments the team thumbs-downed as unhelpful -- see getRecentDownvotedComments. */
+  disfavoredExamples?: string[];
 }
 
 const FLOW_CATEGORY_SLUGS: FlowCategorySlug[] = ["project_brief", "flow_logic"];
@@ -775,6 +788,15 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
       "\n\nHere is the brief/requirements for this project. Check whether " +
       "the flow actually accomplishes what's being asked for, and call out " +
       `anything missing or inconsistent with it:\n\n"""\n${input.projectBrief}\n"""`;
+  }
+
+  if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
+    const examplesList = input.disfavoredExamples.map((c) => `- "${c}"`).join("\n");
+    instructions +=
+      "\n\nThe team has previously marked comments like these as unhelpful (too " +
+      "nitpicky, not actually a problem, or already covered by something else) " +
+      "-- avoid making similar comments unless the issue here is clearly and " +
+      `unambiguously present:\n\n${examplesList}`;
   }
 
   instructions += languageInstruction(input.language);

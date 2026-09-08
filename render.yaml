@@ -20,3 +20,7 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_KEY
         sync: false
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_FEEDBACK_DATABASE_ID
+        sync: false

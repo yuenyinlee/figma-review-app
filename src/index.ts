@@ -24,8 +24,9 @@ import {
   ReviewLanguage,
   ReviewPlatform,
 } from "./claude";
-import { logReview, listReviews } from "./db";
+import { logReview, listReviews, logCommentFeedback, getRecentDownvotedComments } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
+import { createFeedbackEntry } from "./notion";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
 import { planGuidelinePlacements } from "./guidelinePlacement";
 import { applyGuidelineUpdates } from "./driveWrite";
@@ -410,6 +411,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
       language: reviewLanguage,
       platform: reviewPlatform,
+      disfavoredExamples: getRecentDownvotedComments(),
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
@@ -484,6 +486,76 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
 });
 
 /**
+ * Called when a reviewer thumbs up/down a specific comment the app posted,
+ * right in the plugin's results list. Thumbs-down comments feed back into
+ * future reviews as "avoid comments like these" examples (see
+ * getRecentDownvotedComments and its use in getNodeBoundAnnotations /
+ * getUserFlowCritique) -- this is the app's only current mechanism for
+ * improving comment quality from real team judgment over time.
+ */
+app.post("/comment-feedback", (req: Request, res: Response) => {
+  const { fileKey, nodeId, figmaCommentId, category, elementDescription, comment, verdict, commenterName } =
+    req.body ?? {};
+
+  if (typeof fileKey !== "string" || typeof nodeId !== "string") {
+    return res.status(400).json({
+      error: "Request body must include string fields 'fileKey' and 'nodeId'",
+    });
+  }
+  if (typeof comment !== "string" || comment.length === 0) {
+    return res.status(400).json({ error: "Request body must include a non-empty string field 'comment'" });
+  }
+  if (verdict !== "up" && verdict !== "down") {
+    return res.status(400).json({ error: "Request body's 'verdict' field must be 'up' or 'down'" });
+  }
+
+  logCommentFeedback({
+    fileKey,
+    nodeId,
+    figmaCommentId: typeof figmaCommentId === "string" ? figmaCommentId : undefined,
+    category: typeof category === "string" ? category : undefined,
+    elementDescription: typeof elementDescription === "string" ? elementDescription : undefined,
+    comment,
+    verdict,
+    commenterName: typeof commenterName === "string" ? commenterName : undefined,
+  });
+
+  return res.json({ ok: true });
+});
+
+/**
+ * Called from the Figma plugin's "Leave Feedback" form: general feedback
+ * about the app itself (not tied to a specific review comment), logged as a
+ * new entry in the team's Notion feedback database -- see src/notion.ts.
+ */
+app.post("/app-feedback", async (req: Request, res: Response) => {
+  const { comment, categories, commenterName, projectName } = req.body ?? {};
+
+  if (typeof comment !== "string" || comment.length === 0) {
+    return res.status(400).json({ error: "Request body must include a non-empty string field 'comment'" });
+  }
+  if (!Array.isArray(categories) || categories.some((c) => typeof c !== "string")) {
+    return res.status(400).json({ error: "Request body must include a 'categories' array of strings" });
+  }
+  if (typeof commenterName !== "string" || commenterName.length === 0) {
+    return res.status(400).json({ error: "Request body must include a non-empty string field 'commenterName'" });
+  }
+
+  try {
+    await createFeedbackEntry({
+      comment,
+      categories,
+      commenterName,
+      projectName: typeof projectName === "string" && projectName.length > 0 ? projectName : undefined,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
  * Called by the Figma plugin's "Review User Flow" button: reviews a set of
  * connected frames (screens) as a whole -- does the flow fulfill the
  * project brief, and is the sequence itself logical/user-friendly -- as
@@ -550,6 +622,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       projectBrief,
       frameAnnotations: Array.isArray(frameAnnotations) ? (frameAnnotations as FlowFrameAnnotation[]) : undefined,
       language: reviewLanguage,
+      disfavoredExamples: getRecentDownvotedComments(),
     });
     console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
 
