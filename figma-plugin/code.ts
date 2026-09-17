@@ -241,19 +241,12 @@ figma.on("selectionchange", notifyPlatformSuggestion);
 // and the last-pasted file link so that field starts prefilled.
 Promise.all([getStoredAccessCode(), getStoredLanguage(), getStoredFileLink()])
   .then(([code, language, fileLink]) => {
-    let commenterName = "";
-    try {
-      commenterName = getCommenterName() ?? "";
-    } catch {
-      // Missing the "currentuser" manifest permission (or similar) shouldn't
-      // block the whole UI from ever showing -- just fall back to unknown.
-    }
     figma.ui.postMessage({
       type: "init",
       hasAccessCode: Boolean(code),
       language,
       fileLink: fileLink ?? "",
-      commenterName,
+      commenterName: getCommenterName() ?? "",
     });
   })
   .catch((err) => {
@@ -860,7 +853,15 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
 
 /** The plugin's only signal of who's using it -- there's no login of our own. */
 function getCommenterName(): string | undefined {
-  return figma.currentUser?.name;
+  try {
+    return figma.currentUser?.name;
+  } catch {
+    // Throws if the "currentuser" manifest permission isn't active yet in
+    // this session (e.g. a dev plugin that hasn't been fully reloaded since
+    // it was added) -- degrade to unknown rather than failing whatever
+    // called this.
+    return undefined;
+  }
 }
 
 /**
