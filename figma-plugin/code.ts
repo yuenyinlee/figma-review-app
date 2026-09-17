@@ -239,17 +239,29 @@ figma.on("selectionchange", notifyPlatformSuggestion);
 // shows the right view without a visible flash of the wrong one), the
 // current comment-language preference so the segmented control reflects it,
 // and the last-pasted file link so that field starts prefilled.
-Promise.all([getStoredAccessCode(), getStoredLanguage(), getStoredFileLink()]).then(
-  ([code, language, fileLink]) => {
+Promise.all([getStoredAccessCode(), getStoredLanguage(), getStoredFileLink()])
+  .then(([code, language, fileLink]) => {
+    let commenterName = "";
+    try {
+      commenterName = getCommenterName() ?? "";
+    } catch {
+      // Missing the "currentuser" manifest permission (or similar) shouldn't
+      // block the whole UI from ever showing -- just fall back to unknown.
+    }
     figma.ui.postMessage({
       type: "init",
       hasAccessCode: Boolean(code),
       language,
       fileLink: fileLink ?? "",
-      commenterName: getCommenterName() ?? "",
+      commenterName,
     });
-  }
-);
+  })
+  .catch((err) => {
+    // A failure anywhere in this startup sequence used to leave the panel
+    // permanently blank (both views default to hidden until "init" fires)
+    // with no indication why -- surface it instead.
+    figma.ui.postMessage({ type: "error", message: `Failed to start up: ${describeError(err)}` });
+  });
 
 // Suggest a platform for whatever's already selected when the plugin opens.
 notifyPlatformSuggestion();

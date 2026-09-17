@@ -7,6 +7,7 @@
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
   "enablePrivatePluginApi": true,
+  "permissions": ["currentuser"],
   "networkAccess": {
     "allowedDomains": ["https://figma-review-app.onrender.com"],
     "reasoning": "Calls our team's own design-review backend to run frame reviews and write Dev Mode annotations.",
