@@ -26,7 +26,7 @@ import {
 } from "./claude";
 import { logReview, listReviews, logCommentFeedback, getRecentDownvotedComments } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
-import { createFeedbackEntry } from "./notion";
+import { appendFeedbackRow } from "./sheets";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
 import { planGuidelinePlacements } from "./guidelinePlacement";
 import { applyGuidelineUpdates } from "./driveWrite";
@@ -526,7 +526,7 @@ app.post("/comment-feedback", (req: Request, res: Response) => {
 /**
  * Called from the Figma plugin's "Leave Feedback" form: general feedback
  * about the app itself (not tied to a specific review comment), logged as a
- * new entry in the team's Notion feedback database -- see src/notion.ts.
+ * new row in the team's feedback Google Sheet -- see src/sheets.ts.
  */
 app.post("/app-feedback", async (req: Request, res: Response) => {
   const { comment, categories, commenterName, projectName } = req.body ?? {};
@@ -542,7 +542,7 @@ app.post("/app-feedback", async (req: Request, res: Response) => {
   }
 
   try {
-    await createFeedbackEntry({
+    await appendFeedbackRow({
       comment,
       categories,
       commenterName,
