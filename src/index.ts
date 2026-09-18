@@ -24,7 +24,7 @@ import {
   ReviewLanguage,
   ReviewPlatform,
 } from "./claude";
-import { logReview, listReviews, logCommentFeedback, getRecentDownvotedComments } from "./db";
+import { logReview, listReviews, logCommentFeedback, getRecentDownvotedComments, listCommentFeedback } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
 import { appendFeedbackRow } from "./sheets";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
@@ -155,6 +155,10 @@ app.get("/", (_req: Request, res: Response) => {
 
 app.get("/reviews", (_req: Request, res: Response) => {
   res.json(listReviews());
+});
+
+app.get("/comment-feedback", (_req: Request, res: Response) => {
+  res.json(listCommentFeedback());
 });
 
 /**

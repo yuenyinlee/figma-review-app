@@ -132,3 +132,7 @@ export function getRecentDownvotedComments(limit = 15): DownvotedComment[] {
     .prepare(`SELECT comment, reason_tags AS reasonTags FROM comment_feedback WHERE verdict = 'down' ORDER BY id DESC LIMIT ?`)
     .all(limit) as DownvotedComment[];
 }
+
+export function listCommentFeedback(limit = 20) {
+  return db.prepare(`SELECT * FROM comment_feedback ORDER BY id DESC LIMIT ?`).all(limit);
+}
