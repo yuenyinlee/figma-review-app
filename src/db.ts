@@ -59,80 +59,8 @@ export function listReviews(limit = 20) {
     .all(limit);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS comment_feedback (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    file_key TEXT NOT NULL,
-    node_id TEXT NOT NULL,
-    figma_comment_id TEXT,
-    category TEXT,
-    element_description TEXT,
-    comment TEXT NOT NULL,
-    verdict TEXT NOT NULL,
-    commenter_name TEXT
-  )
-`);
-
-// Additive migration: lets a thumbs-down carry why (Bug/Unnecessary/Repeated),
-// not just that it was disliked -- comma-joined, same convention as
-// reviews.annotated_node_ids above.
-try {
-  db.exec(`ALTER TABLE comment_feedback ADD COLUMN reason_tags TEXT`);
-} catch {
-  // column already exists
-}
-
-export interface CommentFeedbackInput {
-  fileKey: string;
-  nodeId: string;
-  figmaCommentId?: string;
-  category?: string;
-  elementDescription?: string;
-  comment: string;
-  verdict: "up" | "down";
-  commenterName?: string;
-  reasonTags?: string[];
-}
-
-const insertFeedbackStmt = db.prepare(`
-  INSERT INTO comment_feedback
-    (file_key, node_id, figma_comment_id, category, element_description, comment, verdict, commenter_name, reason_tags)
-  VALUES
-    (@fileKey, @nodeId, @figmaCommentId, @category, @elementDescription, @comment, @verdict, @commenterName, @reasonTags)
-`);
-
-export function logCommentFeedback(input: CommentFeedbackInput): void {
-  insertFeedbackStmt.run({
-    fileKey: input.fileKey,
-    nodeId: input.nodeId,
-    figmaCommentId: input.figmaCommentId ?? null,
-    category: input.category ?? null,
-    elementDescription: input.elementDescription ?? null,
-    comment: input.comment,
-    verdict: input.verdict,
-    commenterName: input.commenterName ?? null,
-    reasonTags: input.reasonTags && input.reasonTags.length > 0 ? input.reasonTags.join(", ") : null,
-  });
-}
-
-export interface DownvotedComment {
-  comment: string;
-  reasonTags: string | null;
-}
-
-/**
- * Recent thumbs-down comments, used as "avoid comments like these" examples
- * in future review prompts (see src/claude.ts). Most-recent-first, capped so
- * a long history doesn't bloat the prompt -- recent feedback is also more
- * likely to reflect the team's current judgment than very old reactions.
- */
-export function getRecentDownvotedComments(limit = 15): DownvotedComment[] {
-  return db
-    .prepare(`SELECT comment, reason_tags AS reasonTags FROM comment_feedback WHERE verdict = 'down' ORDER BY id DESC LIMIT ?`)
-    .all(limit) as DownvotedComment[];
-}
-
-export function listCommentFeedback(limit = 20) {
-  return db.prepare(`SELECT * FROM comment_feedback ORDER BY id DESC LIMIT ?`).all(limit);
-}
+// comment_feedback (thumbs up/down on review comments) lives in the
+// feedback Google Sheet instead of here -- see src/sheets.ts. Render's free
+// tier has no persistent disk, so anything in this SQLite file is lost on
+// every redeploy or idle restart, which defeats the point of building up
+// feedback history to improve comment quality over time.

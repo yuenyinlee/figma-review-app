@@ -24,9 +24,9 @@ import {
   ReviewLanguage,
   ReviewPlatform,
 } from "./claude";
-import { logReview, listReviews, logCommentFeedback, getRecentDownvotedComments, listCommentFeedback } from "./db";
+import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
-import { appendFeedbackRow } from "./sheets";
+import { appendFeedbackRow, appendCommentReactionRow, getRecentDownvotedComments, listCommentFeedback } from "./sheets";
 import { extractCandidateGuidelines } from "./guidelineExtraction";
 import { planGuidelinePlacements } from "./guidelinePlacement";
 import { applyGuidelineUpdates } from "./driveWrite";
@@ -157,8 +157,13 @@ app.get("/reviews", (_req: Request, res: Response) => {
   res.json(listReviews());
 });
 
-app.get("/comment-feedback", (_req: Request, res: Response) => {
-  res.json(listCommentFeedback());
+app.get("/comment-feedback", async (_req: Request, res: Response) => {
+  try {
+    res.json(await listCommentFeedback());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
 });
 
 /**
@@ -415,7 +420,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
       language: reviewLanguage,
       platform: reviewPlatform,
-      disfavoredExamples: getRecentDownvotedComments(),
+      disfavoredExamples: await getRecentDownvotedComments(),
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
@@ -497,7 +502,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
  * getUserFlowCritique) -- this is the app's only current mechanism for
  * improving comment quality from real team judgment over time.
  */
-app.post("/comment-feedback", (req: Request, res: Response) => {
+app.post("/comment-feedback", async (req: Request, res: Response) => {
   const { fileKey, nodeId, figmaCommentId, category, elementDescription, comment, verdict, commenterName, reasonTags } =
     req.body ?? {};
 
@@ -513,19 +518,23 @@ app.post("/comment-feedback", (req: Request, res: Response) => {
     return res.status(400).json({ error: "Request body's 'verdict' field must be 'up' or 'down'" });
   }
 
-  logCommentFeedback({
-    fileKey,
-    nodeId,
-    figmaCommentId: typeof figmaCommentId === "string" ? figmaCommentId : undefined,
-    category: typeof category === "string" ? category : undefined,
-    elementDescription: typeof elementDescription === "string" ? elementDescription : undefined,
-    comment,
-    verdict,
-    commenterName: typeof commenterName === "string" ? commenterName : undefined,
-    reasonTags: Array.isArray(reasonTags) ? reasonTags.filter((t) => typeof t === "string") : undefined,
-  });
-
-  return res.json({ ok: true });
+  try {
+    await appendCommentReactionRow({
+      fileKey,
+      nodeId,
+      figmaCommentId: typeof figmaCommentId === "string" ? figmaCommentId : undefined,
+      category: typeof category === "string" ? category : undefined,
+      elementDescription: typeof elementDescription === "string" ? elementDescription : undefined,
+      comment,
+      verdict,
+      commenterName: typeof commenterName === "string" ? commenterName : undefined,
+      reasonTags: Array.isArray(reasonTags) ? reasonTags.filter((t) => typeof t === "string") : undefined,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: message });
+  }
 });
 
 /**
@@ -627,7 +636,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       projectBrief,
       frameAnnotations: Array.isArray(frameAnnotations) ? (frameAnnotations as FlowFrameAnnotation[]) : undefined,
       language: reviewLanguage,
-      disfavoredExamples: getRecentDownvotedComments(),
+      disfavoredExamples: await getRecentDownvotedComments(),
     });
     console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
 
