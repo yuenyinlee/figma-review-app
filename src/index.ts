@@ -138,7 +138,16 @@ async function verifyFileMatchesLocalNode(
   localWidth: number,
   localHeight: number
 ): Promise<string | null> {
-  const remote = await getNodeDimensions(fileKey, nodeId);
+  let remote: { width: number; height: number } | null;
+  try {
+    remote = await getNodeDimensions(fileKey, nodeId);
+  } catch (err) {
+    // A failed Figma API call here (e.g. the token's account lacking access
+    // to this file) used to propagate uncaught out of the route handler --
+    // Express's default error page for that gives no useful information.
+    const message = err instanceof Error ? err.message : String(err);
+    return `Couldn't verify the pasted file link against Figma: ${message}`;
+  }
   if (!remote) {
     return "That frame wasn't found in the file at the pasted link -- paste the current file's link (Share > Copy link) before reviewing.";
   }
