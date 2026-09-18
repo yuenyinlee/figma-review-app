@@ -43,14 +43,43 @@ export interface LabeledImage {
   image: ImageInput;
 }
 
-/** A thumbs-downed comment, optionally tagged with why (Bug/Unnecessary/Repeated). */
+/** A thumbs-downed comment, optionally tagged with why (Bug/Unnecessary/Repeated/Inaccurate). */
 export interface DisfavoredExample {
   comment: string;
   reasonTags?: string | null;
 }
 
+/**
+ * Builds the full "avoid comments like these" section of a review prompt,
+ * including what each reason tag actually means -- so a "Bug"-tagged
+ * example (the comment's own claim was wrong) gets weighed differently
+ * than a "Repeated" one (the point itself is valid but overused), rather
+ * than every downvote being treated as an undifferentiated "don't do this."
+ */
 function formatDisfavoredExamples(examples: DisfavoredExample[]): string {
-  return examples.map((e) => `- "${e.comment}"${e.reasonTags ? ` (marked as: ${e.reasonTags})` : ""}`).join("\n");
+  const examplesList = examples
+    .map((e) => `- "${e.comment}"${e.reasonTags ? ` (marked as: ${e.reasonTags})` : ""}`)
+    .join("\n");
+
+  return (
+    "\n\nThe team has previously marked comments like these as unhelpful, each " +
+    "tagged with why:\n" +
+    "- \"Bug\": the comment's own claim was factually wrong (e.g. misread a color, " +
+    "size, spacing value, or component) -- be more careful verifying what you " +
+    "actually see before making a similar claim.\n" +
+    "- \"Inaccurate\": the comment didn't correctly describe what's actually in " +
+    "the design or how it behaves -- double-check details like this rather than " +
+    "assuming.\n" +
+    "- \"Unnecessary\": too minor or nitpicky to be worth flagging -- don't raise " +
+    "something this inconsequential again.\n" +
+    "- \"Repeated\": this same point keeps getting raised across reviews without " +
+    "adding value -- don't repeat it.\n" +
+    "Weigh each example by its specific reason rather than avoiding all of them " +
+    "uniformly, and only hold back when the parallel is clear -- a genuinely " +
+    "present, correctly-observed, non-redundant issue should still be reported " +
+    "even if it superficially resembles one of these:\n\n" +
+    examplesList
+  );
 }
 
 export interface CritiqueInput {
@@ -562,12 +591,7 @@ export async function getNodeBoundAnnotations(
   }
 
   if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
-    const examplesList = formatDisfavoredExamples(input.disfavoredExamples);
-    instructions +=
-      "\n\nThe team has previously marked comments like these as unhelpful (too " +
-      "nitpicky, not actually a problem, or already covered by something else) " +
-      "-- avoid making similar comments unless the issue here is clearly and " +
-      `unambiguously present:\n\n${examplesList}`;
+    instructions += formatDisfavoredExamples(input.disfavoredExamples);
   }
 
   instructions += languageInstruction(input.language);
@@ -801,12 +825,7 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
   }
 
   if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
-    const examplesList = formatDisfavoredExamples(input.disfavoredExamples);
-    instructions +=
-      "\n\nThe team has previously marked comments like these as unhelpful (too " +
-      "nitpicky, not actually a problem, or already covered by something else) " +
-      "-- avoid making similar comments unless the issue here is clearly and " +
-      `unambiguously present:\n\n${examplesList}`;
+    instructions += formatDisfavoredExamples(input.disfavoredExamples);
   }
 
   instructions += languageInstruction(input.language);
