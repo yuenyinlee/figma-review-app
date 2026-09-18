@@ -880,6 +880,7 @@ async function submitCommentReaction(payload: {
   elementDescription?: string;
   comment?: string;
   verdict?: string;
+  reasonTags?: string[];
 }): Promise<void> {
   const accessCode = await getStoredAccessCode();
   if (!accessCode) return;
@@ -905,6 +906,7 @@ async function submitCommentReaction(payload: {
         comment: payload.comment,
         verdict: payload.verdict,
         commenterName: getCommenterName(),
+        reasonTags: Array.isArray(payload.reasonTags) ? payload.reasonTags : undefined,
       }),
     });
   } catch {
@@ -975,6 +977,7 @@ figma.ui.onmessage = (message: {
   verdict?: string;
   categories?: string[];
   projectName?: string;
+  reasonTags?: string[];
 }) => {
   if (message.type === "review") {
     const platform = VALID_PLATFORMS.includes(message.platform as ReviewPlatform)

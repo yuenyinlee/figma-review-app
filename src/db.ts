@@ -74,6 +74,15 @@ db.exec(`
   )
 `);
 
+// Additive migration: lets a thumbs-down carry why (Bug/Unnecessary/Repeated),
+// not just that it was disliked -- comma-joined, same convention as
+// reviews.annotated_node_ids above.
+try {
+  db.exec(`ALTER TABLE comment_feedback ADD COLUMN reason_tags TEXT`);
+} catch {
+  // column already exists
+}
+
 export interface CommentFeedbackInput {
   fileKey: string;
   nodeId: string;
@@ -83,13 +92,14 @@ export interface CommentFeedbackInput {
   comment: string;
   verdict: "up" | "down";
   commenterName?: string;
+  reasonTags?: string[];
 }
 
 const insertFeedbackStmt = db.prepare(`
   INSERT INTO comment_feedback
-    (file_key, node_id, figma_comment_id, category, element_description, comment, verdict, commenter_name)
+    (file_key, node_id, figma_comment_id, category, element_description, comment, verdict, commenter_name, reason_tags)
   VALUES
-    (@fileKey, @nodeId, @figmaCommentId, @category, @elementDescription, @comment, @verdict, @commenterName)
+    (@fileKey, @nodeId, @figmaCommentId, @category, @elementDescription, @comment, @verdict, @commenterName, @reasonTags)
 `);
 
 export function logCommentFeedback(input: CommentFeedbackInput): void {
@@ -102,7 +112,13 @@ export function logCommentFeedback(input: CommentFeedbackInput): void {
     comment: input.comment,
     verdict: input.verdict,
     commenterName: input.commenterName ?? null,
+    reasonTags: input.reasonTags && input.reasonTags.length > 0 ? input.reasonTags.join(", ") : null,
   });
+}
+
+export interface DownvotedComment {
+  comment: string;
+  reasonTags: string | null;
 }
 
 /**
@@ -111,9 +127,8 @@ export function logCommentFeedback(input: CommentFeedbackInput): void {
  * a long history doesn't bloat the prompt -- recent feedback is also more
  * likely to reflect the team's current judgment than very old reactions.
  */
-export function getRecentDownvotedComments(limit = 15): string[] {
-  const rows = db
-    .prepare(`SELECT comment FROM comment_feedback WHERE verdict = 'down' ORDER BY id DESC LIMIT ?`)
-    .all(limit) as { comment: string }[];
-  return rows.map((r) => r.comment);
+export function getRecentDownvotedComments(limit = 15): DownvotedComment[] {
+  return db
+    .prepare(`SELECT comment, reason_tags AS reasonTags FROM comment_feedback WHERE verdict = 'down' ORDER BY id DESC LIMIT ?`)
+    .all(limit) as DownvotedComment[];
 }

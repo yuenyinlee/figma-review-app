@@ -246,6 +246,33 @@
     background: #f6dede;
     color: var(--danger);
   }
+  #results li .reason-picker {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  #results li .reason-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  #results li .reason-option input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  #results li .reason-confirm {
+    width: auto;
+    flex: none;
+    padding: 4px 10px;
+    font-size: 10px;
+    margin-left: auto;
+  }
   #leave-feedback-link {
     display: block;
     margin-top: 6px;
@@ -540,6 +567,8 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
 
+  const DOWNVOTE_REASONS = ["Bug", "Unnecessary", "Repeated"];
+
   function addReactionButtons(li, item) {
     if (!item.nodeId) return;
 
@@ -553,11 +582,32 @@
     downButton.type = "button";
     downButton.innerHTML = THUMB_DOWN_SVG;
 
-    function react(verdict) {
+    const reasonPicker = document.createElement("div");
+    reasonPicker.className = "reason-picker";
+    reasonPicker.style.display = "none";
+    const reasonCheckboxes = DOWNVOTE_REASONS.map((reason) => {
+      const row = document.createElement("label");
+      row.className = "reason-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = reason;
+      row.appendChild(checkbox);
+      row.appendChild(document.createTextNode(reason));
+      reasonPicker.appendChild(row);
+      return checkbox;
+    });
+    const confirmDownButton = document.createElement("button");
+    confirmDownButton.type = "button";
+    confirmDownButton.className = "reason-confirm";
+    confirmDownButton.textContent = "Submit";
+    reasonPicker.appendChild(confirmDownButton);
+
+    function react(verdict, reasonTags) {
       const chosen = verdict === "up" ? upButton : downButton;
       chosen.classList.add("selected", verdict);
       upButton.disabled = true;
       downButton.disabled = true;
+      reasonPicker.style.display = "none";
       parent.postMessage(
         {
           pluginMessage: {
@@ -569,6 +619,7 @@
             elementDescription: item.name,
             comment: item.comment,
             verdict,
+            reasonTags,
           },
         },
         "*"
@@ -576,10 +627,18 @@
     }
 
     upButton.addEventListener("click", () => react("up"));
-    downButton.addEventListener("click", () => react("down"));
+    downButton.addEventListener("click", () => {
+      reasonPicker.style.display = reasonPicker.style.display === "none" ? "flex" : "none";
+    });
+    confirmDownButton.addEventListener("click", () => {
+      const reasonTags = reasonCheckboxes.filter((c) => c.checked).map((c) => c.value);
+      react("down", reasonTags);
+    });
+
     reactions.appendChild(upButton);
     reactions.appendChild(downButton);
     li.appendChild(reactions);
+    li.appendChild(reasonPicker);
   }
 
   function renderResults(applied, failedCount) {

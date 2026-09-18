@@ -43,6 +43,16 @@ export interface LabeledImage {
   image: ImageInput;
 }
 
+/** A thumbs-downed comment, optionally tagged with why (Bug/Unnecessary/Repeated). */
+export interface DisfavoredExample {
+  comment: string;
+  reasonTags?: string | null;
+}
+
+function formatDisfavoredExamples(examples: DisfavoredExample[]): string {
+  return examples.map((e) => `- "${e.comment}"${e.reasonTags ? ` (marked as: ${e.reasonTags})` : ""}`).join("\n");
+}
+
 export interface CritiqueInput {
   frame: ImageInput;
   /** Optional rendered snapshots of the team's design system pages (Components, Typography, etc.). */
@@ -271,7 +281,7 @@ export interface NodeBoundCritiqueInput {
   /** Whether this frame is a web or mobile interface -- scopes which "### Web"/"### Mobile" guideline subsections apply. */
   platform?: ReviewPlatform;
   /** Recent comments the team thumbs-downed as unhelpful -- see getRecentDownvotedComments. */
-  disfavoredExamples?: string[];
+  disfavoredExamples?: DisfavoredExample[];
 }
 
 function buildNodeAnnotationsSchema(nodeIds: string[]) {
@@ -552,7 +562,7 @@ export async function getNodeBoundAnnotations(
   }
 
   if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
-    const examplesList = input.disfavoredExamples.map((c) => `- "${c}"`).join("\n");
+    const examplesList = formatDisfavoredExamples(input.disfavoredExamples);
     instructions +=
       "\n\nThe team has previously marked comments like these as unhelpful (too " +
       "nitpicky, not actually a problem, or already covered by something else) " +
@@ -628,7 +638,7 @@ export interface FlowCritiqueInput {
   /** Which language to write comments/elementDescription in. Defaults to English. */
   language?: ReviewLanguage;
   /** Recent comments the team thumbs-downed as unhelpful -- see getRecentDownvotedComments. */
-  disfavoredExamples?: string[];
+  disfavoredExamples?: DisfavoredExample[];
 }
 
 const FLOW_CATEGORY_SLUGS: FlowCategorySlug[] = ["project_brief", "flow_logic"];
@@ -791,7 +801,7 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
   }
 
   if (input.disfavoredExamples && input.disfavoredExamples.length > 0) {
-    const examplesList = input.disfavoredExamples.map((c) => `- "${c}"`).join("\n");
+    const examplesList = formatDisfavoredExamples(input.disfavoredExamples);
     instructions +=
       "\n\nThe team has previously marked comments like these as unhelpful (too " +
       "nitpicky, not actually a problem, or already covered by something else) " +

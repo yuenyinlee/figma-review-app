@@ -494,7 +494,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
  * improving comment quality from real team judgment over time.
  */
 app.post("/comment-feedback", (req: Request, res: Response) => {
-  const { fileKey, nodeId, figmaCommentId, category, elementDescription, comment, verdict, commenterName } =
+  const { fileKey, nodeId, figmaCommentId, category, elementDescription, comment, verdict, commenterName, reasonTags } =
     req.body ?? {};
 
   if (typeof fileKey !== "string" || typeof nodeId !== "string") {
@@ -518,6 +518,7 @@ app.post("/comment-feedback", (req: Request, res: Response) => {
     comment,
     verdict,
     commenterName: typeof commenterName === "string" ? commenterName : undefined,
+    reasonTags: Array.isArray(reasonTags) ? reasonTags.filter((t) => typeof t === "string") : undefined,
   });
 
   return res.json({ ok: true });
