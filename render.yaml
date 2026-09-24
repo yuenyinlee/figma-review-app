@@ -10,10 +10,6 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: DESIGN_SYSTEM_FILE_KEY
-        sync: false
-      - key: MOBILE_DESIGN_SYSTEM_FILE_KEY
-        sync: false
       - key: GUIDELINES_DOC_ID
         sync: false
       - key: TEAM_ACCESS_CODE

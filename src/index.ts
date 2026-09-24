@@ -3,9 +3,7 @@ import crypto from "crypto";
 import path from "path";
 import express, { Request, Response } from "express";
 import {
-  fetchCheckedPages,
   fetchFrameImageBase64,
-  fetchNodeImagesBase64,
   fetchProjectBrief,
   fetchProjectBriefOnPage,
   getNodeDimensions,
@@ -16,7 +14,6 @@ import {
   getDesignAnnotations,
   getNodeBoundAnnotations,
   getUserFlowCritique,
-  LabeledImage,
   NodeInfo,
   FlowFrame,
   FlowConnection,
@@ -24,6 +21,7 @@ import {
   ReviewLanguage,
   ReviewPlatform,
 } from "./claude";
+import { getDesignSystemReference } from "./designSystemReference";
 import { logReview, listReviews } from "./db";
 import { getGuidelines, fetchDriveFileText } from "./guidelines";
 import { appendFeedbackRow, appendCommentReactionRow, getRecentDownvotedComments, listCommentFeedback } from "./sheets";
@@ -79,48 +77,6 @@ app.use((req: Request, res: Response, next) => {
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-// Re-rendering every design-system reference page from scratch on every
-// single review was both slow and a major contributor to hitting Figma's
-// rate limit (each page needs its own dimension lookup + render call) --
-// yet those pages rarely change between reviews. Cache the rendered set per
-// platform for a while so a burst of reviews (the common case -- a
-// reviewer working through several frames in a row) only pays that cost
-// once.
-const DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS = 15 * 60 * 1000;
-const designSystemReferenceCache = new Map<ReviewPlatform, { images: LabeledImage[]; fetchedAt: number }>();
-
-/**
- * Fetches every ✅-marked page in the configured design system file (for the
- * given platform) as a labeled reference image, in a single batched Figma
- * request. Web uses DESIGN_SYSTEM_FILE_KEY, mobile uses
- * MOBILE_DESIGN_SYSTEM_FILE_KEY -- which pages count is discovered live from
- * the file itself (see fetchCheckedPages), not a separately maintained list,
- * so a checkmark added/removed/renamed in Figma takes effect within
- * DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS of the next review. Returns [] if the
- * relevant file key isn't configured, or the file has no ✅-marked pages.
- */
-async function fetchDesignSystemReferences(platform: ReviewPlatform): Promise<LabeledImage[]> {
-  const cached = designSystemReferenceCache.get(platform);
-  if (cached && Date.now() - cached.fetchedAt < DESIGN_SYSTEM_REFERENCE_CACHE_TTL_MS) {
-    return cached.images;
-  }
-
-  const fileKey =
-    platform === "mobile" ? process.env.MOBILE_DESIGN_SYSTEM_FILE_KEY : process.env.DESIGN_SYSTEM_FILE_KEY;
-  if (!fileKey) return [];
-
-  const pages = await fetchCheckedPages(fileKey);
-  if (pages.length === 0) return [];
-
-  const images = await fetchNodeImagesBase64(
-    fileKey,
-    pages.map((p) => p.nodeId)
-  );
-
-  const references = pages.map((p) => ({ label: p.label, image: images[p.nodeId] }));
-  designSystemReferenceCache.set(platform, { images: references, fetchedAt: Date.now() });
-  return references;
-}
 
 /**
  * Guards against a stale/wrong pasted file link. The plugin can no longer
@@ -224,15 +180,10 @@ app.post("/review", async (req: Request, res: Response) => {
     const frame = await fetchFrameImageBase64(fileKey, nodeId);
     console.log(`[review] frame image fetched (${elapsed()})`);
 
-    // 2. Optionally fetch reference images of the design system's pages
-    //    (Components, Typography, etc.), if configured in .env -- this
+    // 2. Load the written design-system reference, if maintained -- this
     //    legacy REST endpoint has no platform detection, so it always uses
-    //    the web design system.
-    console.log(`[review] fetching design system reference images...`);
-    const designSystemReferences = await fetchDesignSystemReferences("web");
-    console.log(
-      `[review] fetched ${designSystemReferences.length} design system reference image(s) (${elapsed()})`
-    );
+    //    the web one.
+    const designSystemReferenceText = getDesignSystemReference("web");
 
     // 3. Load the team's current design system guidelines, if any are set
     const guidelines = await getGuidelines();
@@ -250,7 +201,7 @@ app.post("/review", async (req: Request, res: Response) => {
     console.log(`[review] calling Claude...`);
     const annotations = await getDesignAnnotations({
       frame,
-      designSystemReferences,
+      designSystemReferenceText,
       guidelines,
       projectBrief,
     });
@@ -393,13 +344,9 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    // 1. Optionally fetch reference images of the design system's pages,
-    //    from the web or mobile file depending on this frame's platform
-    console.log(`[plugin-review] fetching ${reviewPlatform} design system reference images...`);
-    const designSystemReferences = await fetchDesignSystemReferences(reviewPlatform);
-    console.log(
-      `[plugin-review] fetched ${designSystemReferences.length} design system reference image(s) (${elapsed()})`
-    );
+    // 1. Load the written design-system reference for this frame's platform
+    //    (web or mobile) -- see src/designSystemReference.ts.
+    const designSystemReferenceText = getDesignSystemReference(reviewPlatform);
 
     // 2. Load the team's current design system guidelines, if any are set
     const guidelines = await getGuidelines();
@@ -423,7 +370,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
     const annotations = await getNodeBoundAnnotations({
       frame: { base64: frameImage, mediaType: "image/png" },
       nodes: nodes as NodeInfo[],
-      designSystemReferences,
+      designSystemReferenceText,
       guidelines,
       projectBrief,
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,

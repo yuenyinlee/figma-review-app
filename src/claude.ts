@@ -37,12 +37,6 @@ function languageInstruction(language: ReviewLanguage | undefined): string {
   return `\n\nWrite every comment and elementDescription entirely in ${name}.`;
 }
 
-export interface LabeledImage {
-  /** Human-readable label, e.g. "Components" or "Typography" -- shown to Claude. */
-  label: string;
-  image: ImageInput;
-}
-
 /** A thumbs-downed comment, optionally tagged with why (Bug/Unnecessary/Repeated/Inaccurate). */
 export interface DisfavoredExample {
   comment: string;
@@ -84,8 +78,8 @@ function formatDisfavoredExamples(examples: DisfavoredExample[]): string {
 
 export interface CritiqueInput {
   frame: ImageInput;
-  /** Optional rendered snapshots of the team's design system pages (Components, Typography, etc.). */
-  designSystemReferences?: LabeledImage[];
+  /** Optional written description of the team's design system components/rules -- see src/designSystemReference.ts. */
+  designSystemReferenceText?: string;
   /** Optional plain-text guidelines describing how components should be used. */
   guidelines?: string;
   /** Optional project brief/requirements text, specific to the project this frame belongs to. */
@@ -158,26 +152,6 @@ export async function getDesignAnnotations(
     },
   ];
 
-  if (input.designSystemReferences && input.designSystemReferences.length > 0) {
-    content.push({
-      type: "text",
-      text: "For reference, here are pages from the team's design system:",
-    });
-    for (const ref of input.designSystemReferences) {
-      content.push(
-        { type: "text", text: `Design system page: ${ref.label}` },
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: ref.image.mediaType,
-            data: ref.image.base64,
-          },
-        }
-      );
-    }
-  }
-
   let instructions =
     "You are a senior product designer reviewing a screen from a Figma file. " +
     "Identify 4-8 distinct, specific issues with the design -- covering things " +
@@ -188,14 +162,13 @@ export async function getDesignAnnotations(
     "point should be tied to a specific element or area you can actually see, " +
     "not a general remark about the whole screen.";
 
-  if (input.designSystemReferences && input.designSystemReferences.length > 0) {
-    const labels = input.designSystemReferences.map((r) => r.label).join(", ");
+  if (input.designSystemReferenceText) {
     instructions +=
-      `\n\nYou were also given reference images from the team's design system ` +
-      `(${labels}). Explicitly check whether the frame reuses those existing ` +
-      "components correctly (rather than reinventing similar-looking elements), " +
-      "and flag any deviations in color, spacing, typography, or component usage " +
-      "from that system.";
+      "\n\nHere is a written description of the team's design system components " +
+      "and usage rules. Check whether the frame reuses those existing components " +
+      "correctly (rather than reinventing similar-looking elements), and flag any " +
+      "deviations in color, spacing, typography, or component usage from what's " +
+      `described:\n\n"""\n${input.designSystemReferenceText}\n"""`;
   }
 
   if (input.guidelines) {
@@ -300,7 +273,8 @@ export interface NodeBoundCritiqueInput {
   frame: ImageInput;
   /** Candidate layers within the frame that a critique can be attached to. */
   nodes: NodeInfo[];
-  designSystemReferences?: LabeledImage[];
+  /** Optional written description of the team's design system components/rules -- see src/designSystemReference.ts. */
+  designSystemReferenceText?: string;
   guidelines?: string;
   projectBrief?: string;
   /** Design specs designers already annotated directly on specific layers. */
@@ -385,25 +359,6 @@ export async function getNodeBoundAnnotations(
     },
   ];
 
-  if (input.designSystemReferences && input.designSystemReferences.length > 0) {
-    content.push({
-      type: "text",
-      text: "For reference, here are pages from the team's design system:",
-    });
-    for (const ref of input.designSystemReferences) {
-      content.push(
-        { type: "text", text: `Design system page: ${ref.label}` },
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: ref.image.mediaType,
-            data: ref.image.base64,
-          },
-        }
-      );
-    }
-  }
 
   const layerList = input.nodes
     .map((n) => {
@@ -480,7 +435,7 @@ export async function getNodeBoundAnnotations(
     "issue itself isn't about reusing (or failing to reuse) the design system.\n" +
     "- \"design_system\": the frame deviates from the team's design system " +
     "reference components or written guidelines" +
-    (input.designSystemReferences?.length || input.guidelines
+    (input.designSystemReferenceText || input.guidelines
       ? ""
       : " (not applicable here -- none were provided, so don't use this category)") +
     ".\n" +
@@ -499,20 +454,19 @@ export async function getNodeBoundAnnotations(
     "issues (spacing, hierarchy, contrast, touch target size, etc.) on any " +
     "layer, whether or not it's a component instance.";
 
-  if (input.designSystemReferences && input.designSystemReferences.length > 0) {
-    const labels = input.designSystemReferences.map((r) => r.label).join(", ");
+  if (input.designSystemReferenceText) {
     instructions +=
-      `\n\nYou were also given reference images from the team's design system ` +
-      `(${labels}). Explicitly check whether the frame reuses those existing ` +
+      "\n\nHere is a written description of the team's design system components " +
+      "and usage rules. Explicitly check whether the frame reuses those existing " +
       "components correctly (rather than reinventing similar-looking elements), " +
       "and flag any deviations in color, spacing, typography, or component usage " +
-      "from that system. Trust the ground-truth markers in the layer list over " +
-      "visual similarity: a layer that visually resembles a design system " +
+      "from what's described. Trust the ground-truth markers in the layer list " +
+      "over visual similarity: a layer that visually resembles a design system " +
       "component (e.g. a button or heading) but is marked \"not a component " +
       "instance\", a \"LOCAL component\", or a \"LOCAL text style\" was custom-" +
       "built or copy-pasted instead of reusing the real shared component or " +
       "style -- flag that explicitly as a design_system violation, even though " +
-      "it looks correct.";
+      `it looks correct:\n\n"""\n${input.designSystemReferenceText}\n"""`;
   }
 
   instructions +=

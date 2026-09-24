@@ -178,39 +178,6 @@ export async function getNodeDimensions(
 }
 
 /**
- * Lists a file's pages and returns just the ones the team has marked ready
- * for design-system reference by prefixing the page name with "✅" or "✴️" --
- * discovered live on every call, so adding/renaming/removing a marker in
- * Figma takes effect on the very next review with no config change needed.
- * Uses depth=1 so this stays a light request (page names only, not each
- * page's full contents).
- */
-const DESIGN_SYSTEM_PAGE_MARKER = /✅|✴️?/u;
-const DESIGN_SYSTEM_PAGE_MARKER_GLOBAL = /✅|✴️?/gu;
-
-export async function fetchCheckedPages(fileKey: string): Promise<{ label: string; nodeId: string }[]> {
-  const token = getFigmaToken();
-  const url = `${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}?depth=1`;
-
-  const res = await fetchWithRetry(url, {
-    headers: { "X-Figma-Token": token },
-    timeout: REQUEST_TIMEOUT_MS,
-  });
-
-  if (!res.ok) {
-    throw new Error(`Figma page list lookup failed: ${res.status} ${await res.text()}`);
-  }
-
-  const json = (await res.json()) as {
-    document: { children: { id: string; name: string; type: string }[] };
-  };
-
-  return json.document.children
-    .filter((child) => child.type === "CANVAS" && DESIGN_SYSTEM_PAGE_MARKER.test(child.name))
-    .map((page) => ({ label: page.name.replace(DESIGN_SYSTEM_PAGE_MARKER_GLOBAL, "").trim(), nodeId: page.id }));
-}
-
-/**
  * Picks the largest render scale (up to DEFAULT_SCALE) that keeps both
  * image dimensions under Claude's 8000px limit. Falls back to a
  * conservative scale if the node's size can't be determined.
@@ -301,27 +268,6 @@ async function fetchSingleNodeImage(fileKey: string, nodeId: string): Promise<Im
   throw new Error(
     `Could not render node ${nodeId} under Claude's image size limit after ${MAX_RENDER_ATTEMPTS} attempts.`
   );
-}
-
-/**
- * Renders one or more Figma nodes (in the same file) as PNGs, each at a
- * scale that's safe for Claude's size limits, and returns them as base64
- * data keyed by node ID.
- */
-export async function fetchNodeImagesBase64(
-  fileKey: string,
-  nodeIds: string[]
-): Promise<Record<string, ImageResult>> {
-  const results: Record<string, ImageResult> = {};
-  for (let i = 0; i < nodeIds.length; i++) {
-    if (i > 0) {
-      // Small stagger so a large reference set (each node needs its own
-      // dimension lookup + render call) doesn't burst Figma's rate limit.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-    results[nodeIds[i]] = await fetchSingleNodeImage(fileKey, nodeIds[i]);
-  }
-  return results;
 }
 
 /**
