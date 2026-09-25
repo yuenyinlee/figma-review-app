@@ -183,7 +183,7 @@ app.post("/review", async (req: Request, res: Response) => {
     // 2. Load the written design-system reference, if maintained -- this
     //    legacy REST endpoint has no platform detection, so it always uses
     //    the web one.
-    const designSystemReferenceText = getDesignSystemReference("web");
+    const designSystemReferenceText = await getDesignSystemReference("web");
 
     // 3. Load the team's current design system guidelines, if any are set
     const guidelines = await getGuidelines();
@@ -346,7 +346,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
   try {
     // 1. Load the written design-system reference for this frame's platform
     //    (web or mobile) -- see src/designSystemReference.ts.
-    const designSystemReferenceText = getDesignSystemReference(reviewPlatform);
+    const designSystemReferenceText = await getDesignSystemReference(reviewPlatform);
 
     // 2. Load the team's current design system guidelines, if any are set
     const guidelines = await getGuidelines();
