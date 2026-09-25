@@ -74,18 +74,27 @@ export function parseFigmaLink(link: string): { fileKey: string; nodeId: string 
 
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
+// However long Figma's own Retry-After header asks us to wait, this is a
+// live, synchronous, user-facing request -- the reviewer is watching a
+// spinner, not a background job. Waiting out a real Retry-After (which can
+// legitimately be tens of seconds to minutes under sustained rate limiting)
+// makes for a far worse experience than just failing fast with a clear
+// error the user can retry a moment later.
+const MAX_RETRY_DELAY_MS = 8_000;
+
 /**
  * Figma's API occasionally returns a transient 500 ("Internal error, please
  * try again later"), especially when rendering large/complex nodes, and can
  * also return a 429 when a review's burst of per-node image requests (one
  * design-system reference page at a time) outpaces its rate limit. Retry a
- * few times with backoff before giving up, honoring Retry-After when Figma
- * sends one.
+ * few times with capped backoff before giving up -- honors Retry-After's
+ * *presence* (a hint this is worth retrying at all) but not its exact
+ * duration, since that can be far longer than acceptable for a live request.
  */
 async function fetchWithRetry(
   url: string,
   options: Parameters<typeof fetch>[1],
-  maxAttempts = 5
+  maxAttempts = 3
 ): Promise<FetchResponse> {
   let res: FetchResponse;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -94,9 +103,7 @@ async function fetchWithRetry(
     if (res.ok || !isRetryable || attempt === maxAttempts) {
       return res;
     }
-    const retryAfterHeader = res.headers.get("retry-after");
-    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
-    const delayMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 2000 * attempt;
+    const delayMs = Math.min(2000 * attempt, MAX_RETRY_DELAY_MS);
     console.log(
       `[figma] got ${res.status} from Figma, retrying in ${delayMs}ms (attempt ${attempt}/${maxAttempts})`
     );
