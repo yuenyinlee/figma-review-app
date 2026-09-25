@@ -344,28 +344,25 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    // 1. Load the written design-system reference for this frame's platform
-    //    (web or mobile) -- see src/designSystemReference.ts.
-    const designSystemReferenceText = await getDesignSystemReference(reviewPlatform);
-
-    // 2. Load the team's current design system guidelines, if any are set
-    const guidelines = await getGuidelines();
-
-    // 3. Look for a "Project Brief" section on the SAME PAGE as the frame
-    //    being reviewed -- never one that happens to live on a different
-    //    page, even in the same file.
-    console.log(`[plugin-review] looking for a "Project Brief" section on this page...`);
-    const projectBrief =
+    // 1-4. These four lookups are all independent of each other -- run them
+    //    concurrently instead of one after another, since none needs
+    //    another's result.
+    console.log(`[plugin-review] fetching design-system reference, guidelines, project brief, and past feedback...`);
+    const [designSystemReferenceText, guidelines, projectBrief, disfavoredExamples] = await Promise.all([
+      getDesignSystemReference(reviewPlatform),
+      getGuidelines(),
       typeof pageNodeId === "string" && pageNodeId.length > 0
-        ? await fetchProjectBriefOnPage(fileKey, pageNodeId)
-        : await fetchProjectBrief(fileKey);
+        ? fetchProjectBriefOnPage(fileKey, pageNodeId)
+        : fetchProjectBrief(fileKey),
+      getRecentDownvotedComments(),
+    ]);
     console.log(
-      projectBrief
-        ? `[plugin-review] found project brief (${projectBrief.length} chars) (${elapsed()})`
-        : `[plugin-review] no "Project Brief" section found, skipping (${elapsed()})`
+      (projectBrief
+        ? `[plugin-review] found project brief (${projectBrief.length} chars)`
+        : `[plugin-review] no "Project Brief" section found`) + ` (${elapsed()})`
     );
 
-    // 4. Ask Claude for a set of critique points, each bound to a layer id
+    // 5. Ask Claude for a set of critique points, each bound to a layer id
     console.log(`[plugin-review] calling Claude...`);
     const annotations = await getNodeBoundAnnotations({
       frame: { base64: frameImage, mediaType: "image/png" },
@@ -376,57 +373,51 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       existingAnnotations: Array.isArray(existingAnnotations) ? existingAnnotations : undefined,
       language: reviewLanguage,
       platform: reviewPlatform,
-      disfavoredExamples: await getRecentDownvotedComments(),
+      disfavoredExamples,
     });
     console.log(
       `[plugin-review] got ${annotations.length} annotation(s) from Claude (${elapsed()})`
     );
 
-    // 5. Post each critique as a comment pinned to the layer it's about,
+    // 6. Post each critique as a comment pinned to the layer it's about,
     //    tagged with its category and a natural description of the element
     //    (Claude's own elementDescription -- much more legible than the raw
-    //    layer name/metadata). Each post is independent so one failure
-    //    doesn't sink the whole batch.
+    //    layer name/metadata). Posted concurrently -- each is independent,
+    //    and postFigmaComment retries on its own if Figma rate-limits a
+    //    burst -- rather than one at a time, which was a meaningful chunk
+    //    of a review's total latency for anything with several comments.
     console.log(`[plugin-review] posting ${annotations.length} comment(s) to Figma...`);
-    const comments: {
-      nodeId: string;
-      category: string;
-      categoryLabel: string;
-      elementDescription: string;
-      comment: string;
-      commentId?: string;
-      ok: boolean;
-      error?: string;
-    }[] = [];
-    for (const annotation of annotations) {
-      const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][annotation.category] ?? annotation.category;
-      const message = `[${categoryLabel}] ${annotation.elementDescription}: ${annotation.comment}`;
-      try {
-        const commentId = await postFigmaComment(fileKey, annotation.nodeId, message);
-        comments.push({
-          nodeId: annotation.nodeId,
-          category: annotation.category,
-          categoryLabel,
-          elementDescription: annotation.elementDescription,
-          comment: annotation.comment,
-          commentId,
-          ok: true,
-        });
-      } catch (err) {
-        comments.push({
-          nodeId: annotation.nodeId,
-          category: annotation.category,
-          categoryLabel,
-          elementDescription: annotation.elementDescription,
-          comment: annotation.comment,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    const comments = await Promise.all(
+      annotations.map(async (annotation) => {
+        const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][annotation.category] ?? annotation.category;
+        const message = `[${categoryLabel}] ${annotation.elementDescription}: ${annotation.comment}`;
+        try {
+          const commentId = await postFigmaComment(fileKey, annotation.nodeId, message);
+          return {
+            nodeId: annotation.nodeId,
+            category: annotation.category,
+            categoryLabel,
+            elementDescription: annotation.elementDescription,
+            comment: annotation.comment,
+            commentId,
+            ok: true,
+          };
+        } catch (err) {
+          return {
+            nodeId: annotation.nodeId,
+            category: annotation.category,
+            categoryLabel,
+            elementDescription: annotation.elementDescription,
+            comment: annotation.comment,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      })
+    );
     console.log(`[plugin-review] done (${elapsed()})`);
 
-    // 6. Log the result
+    // 7. Log the result
     logReview({
       fileKey,
       nodeId,
@@ -561,15 +552,17 @@ app.post("/flow-review", async (req: Request, res: Response) => {
   try {
     // 1. Look for a "Project Brief" section on the SAME PAGE as the section
     //    being reviewed -- never one that happens to live on a different page.
-    console.log(`[flow-review] looking for a "Project Brief" section on this page...`);
-    const projectBrief =
+    console.log(`[flow-review] fetching project brief and past feedback...`);
+    const [projectBrief, disfavoredExamples] = await Promise.all([
       typeof pageNodeId === "string" && pageNodeId.length > 0
-        ? await fetchProjectBriefOnPage(fileKey, pageNodeId)
-        : await fetchProjectBrief(fileKey);
+        ? fetchProjectBriefOnPage(fileKey, pageNodeId)
+        : fetchProjectBrief(fileKey),
+      getRecentDownvotedComments(),
+    ]);
     console.log(
-      projectBrief
-        ? `[flow-review] found project brief (${projectBrief.length} chars) (${elapsed()})`
-        : `[flow-review] no "Project Brief" section found, skipping (${elapsed()})`
+      (projectBrief
+        ? `[flow-review] found project brief (${projectBrief.length} chars)`
+        : `[flow-review] no "Project Brief" section found`) + ` (${elapsed()})`
     );
 
     // 2. Ask Claude to judge the flow as a whole
@@ -592,52 +585,46 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       projectBrief,
       frameAnnotations: Array.isArray(frameAnnotations) ? (frameAnnotations as FlowFrameAnnotation[]) : undefined,
       language: reviewLanguage,
-      disfavoredExamples: await getRecentDownvotedComments(),
+      disfavoredExamples,
     });
     console.log(`[flow-review] got ${critiques.length} critique(s) from Claude (${elapsed()})`);
 
-    // 3. Post each critique as a comment pinned to the frame it's about
+    // 3. Post each critique as a comment pinned to the frame it's about,
+    //    concurrently rather than one at a time -- see the matching note in
+    //    /plugin-review above.
     console.log(`[flow-review] posting ${critiques.length} comment(s) to Figma...`);
-    const comments: {
-      nodeId: string;
-      category: string;
-      categoryLabel: string;
-      elementDescription: string;
-      comment: string;
-      commentId?: string;
-      ok: boolean;
-      error?: string;
-    }[] = [];
-    for (const critique of critiques) {
-      const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][critique.category] ?? critique.category;
-      const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
-      const dims = frameDimsById.get(critique.frameId);
-      const clampedX = Math.min(1, Math.max(0, critique.x));
-      const clampedY = Math.min(1, Math.max(0, critique.y));
-      const offset = dims ? { x: clampedX * dims.width, y: clampedY * dims.height } : { x: 0, y: 0 };
-      try {
-        const commentId = await postFigmaComment(fileKey, critique.frameId, message, offset);
-        comments.push({
-          nodeId: critique.frameId,
-          category: critique.category,
-          categoryLabel,
-          elementDescription: critique.elementDescription,
-          comment: critique.comment,
-          commentId,
-          ok: true,
-        });
-      } catch (err) {
-        comments.push({
-          nodeId: critique.frameId,
-          category: critique.category,
-          categoryLabel,
-          elementDescription: critique.elementDescription,
-          comment: critique.comment,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    const comments = await Promise.all(
+      critiques.map(async (critique) => {
+        const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][critique.category] ?? critique.category;
+        const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
+        const dims = frameDimsById.get(critique.frameId);
+        const clampedX = Math.min(1, Math.max(0, critique.x));
+        const clampedY = Math.min(1, Math.max(0, critique.y));
+        const offset = dims ? { x: clampedX * dims.width, y: clampedY * dims.height } : { x: 0, y: 0 };
+        try {
+          const commentId = await postFigmaComment(fileKey, critique.frameId, message, offset);
+          return {
+            nodeId: critique.frameId,
+            category: critique.category,
+            categoryLabel,
+            elementDescription: critique.elementDescription,
+            comment: critique.comment,
+            commentId,
+            ok: true,
+          };
+        } catch (err) {
+          return {
+            nodeId: critique.frameId,
+            category: critique.category,
+            categoryLabel,
+            elementDescription: critique.elementDescription,
+            comment: critique.comment,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      })
+    );
     console.log(`[flow-review] done (${elapsed()})`);
 
     // 4. Log the result

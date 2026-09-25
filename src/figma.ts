@@ -467,7 +467,7 @@ export async function postFigmaComment(
 ): Promise<string> {
   const token = getFigmaToken();
 
-  const res = await fetch(`${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}/comments`, {
+  const res = await fetchWithRetry(`${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}/comments`, {
     method: "POST",
     headers: {
       "X-Figma-Token": token,
