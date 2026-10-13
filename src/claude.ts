@@ -32,6 +32,21 @@ export const LANGUAGE_NAMES: Record<ReviewLanguage, string> = {
   "zh-Hans": "Simplified Chinese (简体中文)",
 };
 
+/**
+ * Appended to every review prompt. Without it the model pads its output with
+ * "verify/make sure/check that..." comments about things that are actually
+ * fine -- e.g. "make sure there's only one primary button" on a frame that
+ * has exactly one -- which read as false alarms and erode trust in the real
+ * findings.
+ */
+const ONLY_CONFIRMED_ISSUES_INSTRUCTION =
+  "\n\nOnly report a problem you have actually confirmed is present. Do NOT " +
+  "write comments that ask the reader to verify, confirm, check, or make " +
+  "sure of something (e.g. \"make sure there is only one primary button\") -- " +
+  "do that check yourself. If the check passes (e.g. exactly one primary " +
+  "button), say nothing about it at all. Every comment must describe a real " +
+  "deviation and what to change, never a precaution or a reminder.";
+
 function languageInstruction(language: ReviewLanguage | undefined): string {
   const name = LANGUAGE_NAMES[language ?? "en"];
   return `\n\nWrite every comment and elementDescription entirely in ${name}.`;
@@ -556,6 +571,7 @@ export async function getNodeBoundAnnotations(
     instructions += formatDisfavoredExamples(input.disfavoredExamples);
   }
 
+  instructions += ONLY_CONFIRMED_ISSUES_INSTRUCTION;
   instructions += languageInstruction(input.language);
 
   content.push({ type: "text", text: instructions });
@@ -790,6 +806,7 @@ export async function getUserFlowCritique(input: FlowCritiqueInput): Promise<Flo
     instructions += formatDisfavoredExamples(input.disfavoredExamples);
   }
 
+  instructions += ONLY_CONFIRMED_ISSUES_INSTRUCTION;
   instructions += languageInstruction(input.language);
 
   content.push({ type: "text", text: instructions });
