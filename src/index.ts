@@ -86,6 +86,32 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // clear answer within a bounded time instead of hanging indefinitely.
 const REVIEW_TIMEOUT_MS = 150_000;
 
+// Figma limits comment posting to 5/minute for View/Collab seats (25/minute
+// for Full/Dev on Pro) and a review can find up to 20 issues, so a
+// low-seat comment account would have most of its posts rejected with 429.
+// Cap how many findings get posted per review; raise via env var if the
+// comment account is ever upgraded to a seat with a higher limit.
+const MAX_COMMENTS_PER_REVIEW = Number(process.env.MAX_COMMENTS_PER_REVIEW) || 5;
+
+// Which findings to keep when over the cap -- design-system violations
+// first, matching the priority the review prompt already asks for.
+const CATEGORY_PRIORITY: Record<string, number> = {
+  design_system: 0,
+  project_brief: 1,
+  flow_logic: 1,
+  accessibility_usability: 2,
+};
+
+function prioritize<T extends { category: string }>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort(
+      (a, b) =>
+        (CATEGORY_PRIORITY[a.item.category] ?? 3) - (CATEGORY_PRIORITY[b.item.category] ?? 3) || a.index - b.index
+    )
+    .map((x) => x.item);
+}
+
 function reviewTimeout(): Promise<never> {
   return new Promise((_, reject) =>
     setTimeout(
@@ -368,7 +394,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    const { annotations, comments } = await Promise.race([
+    const { annotations, comments, omittedCount } = await Promise.race([
       (async () => {
         // 1-4. These four lookups are all independent of each other -- run
         //    them concurrently instead of one after another, since none
@@ -413,9 +439,13 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
         //    Figma rate-limits a burst -- rather than one at a time, which
         //    was a meaningful chunk of a review's total latency for
         //    anything with several comments.
-        console.log(`[plugin-review] posting ${annotations.length} comment(s) to Figma...`);
+        const postable = prioritize(annotations).slice(0, MAX_COMMENTS_PER_REVIEW);
+        const omittedCount = annotations.length - postable.length;
+        console.log(
+          `[plugin-review] posting ${postable.length} of ${annotations.length} comment(s) to Figma...`
+        );
         const comments = await Promise.all(
-          annotations.map(async (annotation) => {
+          postable.map(async (annotation) => {
             const categoryLabel =
               CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][annotation.category] ?? annotation.category;
             const message = `[${categoryLabel}] ${annotation.elementDescription}: ${annotation.comment}`;
@@ -444,7 +474,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
           })
         );
         console.log(`[plugin-review] done (${elapsed()})`);
-        return { annotations, comments };
+        return { annotations, comments, omittedCount };
       })(),
       reviewTimeout(),
     ]);
@@ -458,7 +488,7 @@ app.post("/plugin-review", async (req: Request, res: Response) => {
       annotatedNodeIds: comments.filter((c) => c.ok).map((c) => c.nodeId).join(","),
     });
 
-    return res.json({ comments });
+    return res.json({ comments, omittedCount });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
@@ -582,7 +612,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
   const elapsed = () => `${((Date.now() - started) / 1000).toFixed(1)}s`;
 
   try {
-    const { critiques, comments } = await Promise.race([
+    const { critiques, comments, omittedCount } = await Promise.race([
       (async () => {
         // 1. Look for a "Project Brief" section on the SAME PAGE as the
         //    section being reviewed -- never one that happens to live on a
@@ -627,9 +657,11 @@ app.post("/flow-review", async (req: Request, res: Response) => {
         // 3. Post each critique as a comment pinned to the frame it's
         //    about, concurrently rather than one at a time -- see the
         //    matching note in /plugin-review above.
-        console.log(`[flow-review] posting ${critiques.length} comment(s) to Figma...`);
+        const postable = prioritize(critiques).slice(0, MAX_COMMENTS_PER_REVIEW);
+        const omittedCount = critiques.length - postable.length;
+        console.log(`[flow-review] posting ${postable.length} of ${critiques.length} comment(s) to Figma...`);
         const comments = await Promise.all(
-          critiques.map(async (critique) => {
+          postable.map(async (critique) => {
             const categoryLabel = CATEGORY_LABELS_BY_LANGUAGE[reviewLanguage][critique.category] ?? critique.category;
             const message = `[${categoryLabel}] ${critique.elementDescription}: ${critique.comment}`;
             const dims = frameDimsById.get(critique.frameId);
@@ -661,7 +693,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
           })
         );
         console.log(`[flow-review] done (${elapsed()})`);
-        return { critiques, comments };
+        return { critiques, comments, omittedCount };
       })(),
       reviewTimeout(),
     ]);
@@ -675,7 +707,7 @@ app.post("/flow-review", async (req: Request, res: Response) => {
       annotatedNodeIds: comments.filter((c) => c.ok).map((c) => c.nodeId).join(","),
     });
 
-    return res.json({ comments });
+    return res.json({ comments, omittedCount });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

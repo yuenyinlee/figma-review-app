@@ -134,6 +134,7 @@ type AnnotationCategorySlug = "project_brief" | "design_system" | "accessibility
 // back what actually happened per item, already labeled for display -- the
 // plugin doesn't need its own category-name mapping anymore.
 interface PluginReviewResponse {
+  omittedCount?: number;
   comments: {
     nodeId: string;
     category: AnnotationCategorySlug;
@@ -447,6 +448,7 @@ interface FlowConnection {
 }
 
 interface FlowReviewResponse {
+  omittedCount?: number;
   comments: {
     nodeId: string;
     category: string;
@@ -712,7 +714,7 @@ async function runFlowReview(): Promise<void> {
     }));
   const failedCount = result.comments.length - applied.length;
 
-  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey });
+  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey, omittedCount: result.omittedCount ?? 0 });
 }
 
 function describeError(err: unknown): string {
@@ -848,7 +850,7 @@ async function runReview(platform: ReviewPlatform): Promise<void> {
     }));
   const failedCount = result.comments.length - applied.length;
 
-  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey });
+  figma.ui.postMessage({ type: "done", applied, failedCount, fileKey, omittedCount: result.omittedCount ?? 0 });
 }
 
 /** The plugin's only signal of who's using it -- there's no login of our own. */

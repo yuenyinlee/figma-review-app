@@ -641,7 +641,7 @@
     li.appendChild(reasonPicker);
   }
 
-  function renderResults(applied, failedCount) {
+  function renderResults(applied, failedCount, omittedCount) {
     results.innerHTML = "";
     for (const item of applied) {
       const li = document.createElement("li");
@@ -662,6 +662,11 @@
     if (failedCount > 0) {
       const li = document.createElement("li");
       li.textContent = `${failedCount} comment(s) couldn't be posted.`;
+      results.appendChild(li);
+    }
+    if (omittedCount > 0) {
+      const li = document.createElement("li");
+      li.textContent = `${omittedCount} more finding(s) weren't posted -- reviews are limited to the top comments by priority.`;
       results.appendChild(li);
     }
   }
@@ -767,7 +772,7 @@
     } else if (message.type === "done") {
       currentReviewFileKey = message.fileKey || "";
       setStatus(`Done -- posted ${message.applied.length} comment(s).`);
-      renderResults(message.applied, message.failedCount);
+      renderResults(message.applied, message.failedCount, message.omittedCount || 0);
       setButtonsDisabled(false);
     } else if (message.type === "feedbackSubmitted") {
       setStatus("Thanks -- feedback submitted.");
