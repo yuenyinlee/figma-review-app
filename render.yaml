@@ -8,6 +8,8 @@ services:
     envVars:
       - key: FIGMA_TOKEN
         sync: false
+      - key: FIGMA_COMMENT_TOKEN
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GUIDELINES_DOC_ID

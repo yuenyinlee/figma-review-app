@@ -38,6 +38,17 @@ function getFigmaToken(): string {
 }
 
 /**
+ * Token used only to post review comments, so they can appear under a
+ * dedicated account (e.g. design@upward.jp) while FIGMA_TOKEN -- which
+ * needs a Full or Dev seat, since reads like file/node lookups are heavily
+ * rate-limited for View/Collab seats -- does all the reading. Falls back to
+ * FIGMA_TOKEN when unset, so a single-token setup keeps working unchanged.
+ */
+function getFigmaCommentToken(): string {
+  return process.env.FIGMA_COMMENT_TOKEN || getFigmaToken();
+}
+
+/**
  * Parses a Figma "Copy link to selection" URL into a file key + node ID,
  * e.g. https://www.figma.com/design/ABC123/My-File?node-id=1-23
  *   -> { fileKey: "ABC123", nodeId: "1:23" }
@@ -490,7 +501,7 @@ export async function postFigmaComment(
   message: string,
   offset: { x: number; y: number } = { x: 0, y: 0 }
 ): Promise<string> {
-  const token = getFigmaToken();
+  const token = getFigmaCommentToken();
 
   const res = await fetchWithRetry(`${FIGMA_API_BASE}/files/${encodeURIComponent(fileKey)}/comments`, {
     method: "POST",
