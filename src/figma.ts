@@ -112,6 +112,26 @@ async function fetchWithRetry(
   return res!;
 }
 
+/**
+ * Builds the error for a failed Figma API response. For rate limits, also
+ * surfaces Figma's own rate-limit headers -- Retry-After says how long until
+ * it clears, and X-Figma-Rate-Limit-Type ("low" = a View/Collab seat's very
+ * small allowance, "high" = a Full/Dev seat) says whether this is a brief
+ * burst or a permanent ceiling on the token's account.
+ */
+async function figmaError(label: string, res: FetchResponse): Promise<Error> {
+  const body = await res.text();
+  let message = `${label}: ${res.status} ${body}`;
+  if (res.status === 429) {
+    const info = ["retry-after", "x-figma-plan-tier", "x-figma-rate-limit-type"]
+      .map((h) => (res.headers.get(h) ? `${h}=${res.headers.get(h)}` : null))
+      .filter(Boolean)
+      .join(", ");
+    if (info) message += ` [${info}]`;
+  }
+  return new Error(message);
+}
+
 async function downloadImageBuffer(url: string) {
   const imageRes = await fetch(url, { timeout: REQUEST_TIMEOUT_MS });
   if (!imageRes.ok) {
@@ -140,7 +160,7 @@ export async function getNodeDimensions(
   });
 
   if (!res.ok) {
-    throw new Error(`Figma node lookup failed: ${res.status} ${await res.text()}`);
+    throw await figmaError("Figma node lookup failed", res);
   }
 
   interface NodeBox {
@@ -223,9 +243,7 @@ async function renderNodeUrl(fileKey: string, nodeId: string, scale: number): Pr
   });
 
   if (!renderRes.ok) {
-    throw new Error(
-      `Figma image render request failed: ${renderRes.status} ${await renderRes.text()}`
-    );
+    throw await figmaError("Figma image render request failed", renderRes);
   }
 
   const renderJson = (await renderRes.json()) as {
@@ -317,7 +335,7 @@ async function findBriefNodeId(fileKey: string, namePrefix: string): Promise<str
   });
 
   if (!res.ok) {
-    throw new Error(`Figma file lookup failed: ${res.status} ${await res.text()}`);
+    throw await figmaError("Figma file lookup failed", res);
   }
 
   const json = (await res.json()) as {
@@ -370,7 +388,7 @@ async function getPageTextContent(fileKey: string, pageNodeId: string): Promise<
   });
 
   if (!res.ok) {
-    throw new Error(`Figma page content lookup failed: ${res.status} ${await res.text()}`);
+    throw await figmaError("Figma page content lookup failed", res);
   }
 
   const json = (await res.json()) as {
@@ -423,7 +441,7 @@ export async function fetchProjectBriefOnPage(
   });
 
   if (!res.ok) {
-    throw new Error(`Figma page lookup failed: ${res.status} ${await res.text()}`);
+    throw await figmaError("Figma page lookup failed", res);
   }
 
   const json = (await res.json()) as {
@@ -491,9 +509,7 @@ export async function postFigmaComment(
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Figma post-comment request failed: ${res.status} ${await res.text()}`
-    );
+    throw await figmaError("Figma post-comment request failed", res);
   }
 
   const json = (await res.json()) as { id: string };
