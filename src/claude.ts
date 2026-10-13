@@ -492,6 +492,14 @@ export async function getNodeBoundAnnotations(
     "component's variant and its actual semantic role is just as much a " +
     "design_system violation as using no real component at all, even though " +
     "every layer involved is a genuine shared instance.\n\n" +
+    "Never state which typography style, size, or weight a text layer uses " +
+    "based on how it looks. Heading and Body sizes overlap (e.g. Heading md " +
+    "and Body lg are both 16/22px), so appearance can't tell you which one " +
+    "was used. Only name a typography style or role if the layer list above " +
+    "says so (a shared text style, or a typography component instance's " +
+    "name); otherwise don't comment on which typography was chosen. The " +
+    "same goes for any other component: name it only from the layer list, " +
+    "never from visual resemblance.\n\n" +
     "Some written guidelines (and this variant-counting check) describe a " +
     "property of the FRAME AS A WHOLE -- e.g. \"no more than one primary " +
     "button per screen\", \"only one H1 per page\" -- rather than something " +

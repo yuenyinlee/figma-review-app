@@ -304,10 +304,19 @@ async function describeNode(
     const displayText = findDisplayText(node);
     try {
       const mainComponent = await node.getMainComponentAsync();
+      // A variant's own name is just its properties (e.g. "size=md") -- the
+      // component it belongs to (e.g. "typography / heading") lives on the
+      // parent component set, and without it two different components with
+      // similar variants are indistinguishable.
+      const parent = mainComponent?.parent;
+      const mainComponentName =
+        mainComponent && parent && parent.type === "COMPONENT_SET"
+          ? `${parent.name} (${mainComponent.name})`
+          : mainComponent?.name;
       return {
         isComponentInstance: true,
         isRemoteComponentInstance: mainComponent?.remote ?? false,
-        mainComponentName: mainComponent?.name,
+        mainComponentName,
         displayText,
       };
     } catch {
